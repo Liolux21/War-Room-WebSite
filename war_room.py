@@ -13,12 +13,12 @@ st.set_page_config(page_title="War Room - Sniper Dashboard", layout="wide")
 # ==========================================
 API_KEY = "2a2acdc61d034feb909c10b63b916195"
 COMPETITIONS = ['PL', 'PD', 'BL1', 'SA', 'FL1', 'CL', 'DED', 'PPL']
+BIG_SIX_NAMES = ["AFC Ajax", "PSV", "Feyenoord", "Sporting CP", "FC Porto", "SL Benfica"]
 
-# Noms EXACTS utilisés par l'API football-data.org pour tes cibles
-BIG_SIX_NAMES = [
-    "AFC Ajax", "PSV", "Feyenoord",           # Eredivisie
-    "Sporting CP", "FC Porto", "SL Benfica"   # Primeira Liga
-]
+# Définition des colonnes pour éviter les KeyError
+STATS_COLS = ['H_1x2', 'A_1x2', 'H_AH', 'A_AH', 'H_Over', 'A_Over', 'H_1stGoal', 'A_1stGoal', 'H_BTTS', 'A_BTTS', 'H_RTP', 'A_RTP', 'H_RTA', 'A_RTA', 'H_AttD', 'A_AttD', 'H_Shots', 'A_Shots', 'H_TirC', 'A_TirC', 'H_TirH', 'A_TirH']
+BASE_COLS = ['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1', 'GO_Etape2', 'GO_Etape3', 'Absents_Dom', 'Absents_Ext', 'Cote_Cible', 'Pari_Final']
+ALL_COLS = BASE_COLS + STATS_COLS
 
 @st.cache_data
 def load_players_db():
@@ -37,18 +37,13 @@ players_db = load_players_db()
 # ==========================================
 def get_target_dates(session_name):
     today = datetime.now()
-    # On cherche le vendredi (4) de la semaine
     days_to_friday = (4 - today.weekday())
-    
-    # Si on est WE, on prend le vendredi qui vient de passer pour voir les matchs en cours
     start_of_we = today + timedelta(days=days_to_friday)
-    
     if session_name == "Week-end prochain":
         start_date = start_of_we + timedelta(days=7)
     else:
         start_date = start_of_we
-        
-    end_date = start_date + timedelta(days=3) # Jusqu'au lundi inclus
+    end_date = start_date + timedelta(days=3)
     return start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
 
 def get_force_dict(league_code, headers):
@@ -68,43 +63,31 @@ def run_super_scanner(session_name):
     headers = {'X-Auth-Token': API_KEY}
     date_from, date_to = get_target_dates(session_name)
     matchs_list = []
-    
     progress_bar = st.progress(0)
+    
     for i, league in enumerate(COMPETITIONS):
         progress_bar.progress((i + 1) / len(COMPETITIONS))
         try:
             force_dict = get_force_dict(league, headers)
-            time.sleep(1.2) # Quota API
-
+            time.sleep(1.2)
             url_m = f"https://api.football-data.org/v4/competitions/{league}/matches?dateFrom={date_from}&dateTo={date_to}"
             res_m = requests.get(url_m, headers=headers, timeout=10).json()
-
             if 'matches' in res_m and res_m['matches']:
                 for m in res_m['matches']:
-                    dom = m['homeTeam']['name']
-                    ext = m['awayTeam']['name']
-                    
-                    # FILTRE CIBLÉ : Uniquement les gros pour DED et PPL
-                    if league in ['DED', 'PPL']:
-                        if dom not in BIG_SIX_NAMES and ext not in BIG_SIX_NAMES:
-                            continue
-
+                    dom, ext = m['homeTeam']['name'], m['awayTeam']['name']
+                    if league in ['DED', 'PPL'] and dom not in BIG_SIX_NAMES and ext not in BIG_SIX_NAMES: continue
                     d_dom = force_dict.get(dom, {'pos': 10, 'pts': 0, 'gd': 0})
                     d_ext = force_dict.get(ext, {'pos': 10, 'pts': 0, 'gd': 0})
                     ecart = abs(d_dom['pos'] - d_ext['pos'])
-
-                    matchs_list.append({
-                        'Date': m['utcDate'][:10],
-                        'Heure': m['utcDate'][11:16],
-                        'Match': f"{dom} vs {ext}",
-                        'Ligue': league,
-                        'Favori': dom if d_dom['pos'] < d_ext['pos'] else ext,
-                        'Confiance_Initiale': f"{min(95, 50 + (ecart * 3))}%",
-                        'GO_Etape1': False, 'GO_Etape2': False, 'GO_Etape3': False,
-                        'H_1x2':0,'A_1x2':0,'H_AH':0,'A_AH':0,'H_Over':0,'A_Over':0,'H_1stGoal':0,'A_1stGoal':0,'H_BTTS':0,'A_BTTS':0,
-                        'H_RTP':0,'A_RTP':0,'H_RTA':0,'A_RTA':0,'H_AttD':0,'A_AttD':0,'H_Shots':0,'A_Shots':0,'H_TirC':0,'A_TirC':0,'H_TirH':0,'A_TirH':0,
-                        'Absents_Dom':[], 'Absents_Ext':[], 'Cote_Cible':0, 'Pari_Final':''
+                    
+                    row = {c: 0 for c in ALL_COLS} # Initialisation propre
+                    row.update({
+                        'Date': m['utcDate'][:10], 'Heure': m['utcDate'][11:16], 'Match': f"{dom} vs {ext}",
+                        'Ligue': league, 'Favori': dom if d_dom['pos'] < d_ext['pos'] else ext,
+                        'Confiance_Initiale': f"{min(95, 50 + (ecart * 3))}%", 'GO_Etape1': False, 'GO_Etape2': False, 'GO_Etape3': False,
+                        'Absents_Dom': [], 'Absents_Ext': [], 'Pari_Final': ''
                     })
+                    matchs_list.append(row)
             time.sleep(1.2)
         except: continue
     return pd.DataFrame(matchs_list)
@@ -112,13 +95,16 @@ def run_super_scanner(session_name):
 # ==========================================
 # ⚙️ GESTION SESSIONS
 # ==========================================
+if 'all_sessions' not in st.session_state:
+    st.session_state.all_sessions = {}
+
 with st.sidebar:
     st.header("⚙️ Paramètres")
     session_active = st.selectbox("Session de travail :", ["Week-end en cours", "Week-end prochain", "Archives"])
-    if 'all_sessions' not in st.session_state:
-        st.session_state.all_sessions = {}
-    if session_active not in st.session_state.all_sessions:
-        st.session_state.all_sessions[session_active] = pd.DataFrame()
+    
+    # SECURITÉ : Initialisation forcée si session vide ou inexistante
+    if session_active not in st.session_state.all_sessions or st.session_state.all_sessions[session_active].empty:
+        st.session_state.all_sessions[session_active] = pd.DataFrame(columns=ALL_COLS)
 
 # ==========================================
 # 🏗️ INTERFACE
@@ -137,7 +123,7 @@ with tab1:
                 st.rerun()
     with c2:
         if st.button("🗑️ Vider"):
-            st.session_state.all_sessions[session_active] = pd.DataFrame()
+            st.session_state.all_sessions[session_active] = pd.DataFrame(columns=ALL_COLS)
             st.rerun()
 
     df_radar = st.session_state.all_sessions[session_active]
@@ -150,10 +136,9 @@ with tab1:
 # --- ONGLET 2 : STATS ---
 with tab2:
     cur_df = st.session_state.all_sessions[session_active]
-    if cur_df.empty: st.warning("Lancez un scan.")
+    matches = cur_df[cur_df['GO_Etape1'] == True] if not cur_df.empty else pd.DataFrame()
+    if matches.empty: st.info("Cochez GO au Radar.")
     else:
-        matches = cur_df[cur_df['GO_Etape1'] == True]
-        if matches.empty: st.info("Cochez GO au Radar.")
         for idx, row in matches.iterrows():
             with st.expander(f"⚔️ {row['Match']}", expanded=True):
                 dom, ext = row['Match'].split(' vs ')
@@ -174,7 +159,7 @@ with tab3:
             st.success("Mémoire chargée.")
 
     cur_inf = st.session_state.all_sessions[session_active]
-    df_inf = cur_inf[cur_inf['GO_Etape2'] == True]
+    df_inf = cur_inf[cur_inf['GO_Etape2'] == True] if not cur_inf.empty else pd.DataFrame()
     if df_inf.empty: st.info("Validez l'étape 2.")
     else:
         for idx, row in df_inf.iterrows():
@@ -194,12 +179,13 @@ with tab3:
 
 # --- ONGLET 4 : VERDICT ---
 with tab4:
-    df_f = st.session_state.all_sessions[session_active][st.session_state.all_sessions[session_active]['GO_Etape3'] == True]
+    cur_f = st.session_state.all_sessions[session_active]
+    df_f = cur_f[cur_f['GO_Etape3'] == True] if not cur_f.empty else pd.DataFrame()
     for idx, row in df_f.iterrows():
         with st.expander(f"💰 {row['Match']}"):
             c1, c2, c3 = st.columns(3)
-            with c1: st.data_editor(pd.DataFrame({"Marché": ["1","X","2","DNB 1","DNB 2","1X","X2"], "Cote": [1.0]*7}), key=f"c1_{idx}", hide_index=True)
-            with c2: st.data_editor(pd.DataFrame({"Marché": ["BTTS Oui","BTTS Non","Over 1.5","Over 2.5","Over 3.5","Under 1.5","Under 2.5","Under 3.5"], "Cote": [1.0]*8}), key=f"c2_{idx}", hide_index=True)
-            with c3: st.data_editor(pd.DataFrame({f"Hdc {dom}": ["-0.5","+0.5"], "Cote Dom": [1.0, 1.0], f"Hdc {ext}": ["-0.5","+0.5"], "Cote Ext": [1.0, 1.0]}), key=f"c3_{idx}", hide_index=True)
+            with c1: st.data_editor(pd.DataFrame({"M": ["1","X","2","DNB 1","DNB 2","1X","X2"], "C": [1.0]*7}), key=f"c1_{idx}", hide_index=True)
+            with c2: st.data_editor(pd.DataFrame({"M": ["BTTS Oui","BTTS Non","Over 1.5","Over 2.5","Over 3.5","Under 1.5","Under 2.5","Under 3.5"], "C": [1.0]*8}), key=f"c2_{idx}", hide_index=True)
+            with c3: st.data_editor(pd.DataFrame({"H": ["-0.5","+0.5"], "C Dom": [1.0, 1.0], "C Ext": [1.0, 1.0]}), key=f"c3_{idx}", hide_index=True)
             if st.button(f"📰 Prompt {row['Match']}", key=f"p_{idx}"):
                 st.code(f"Analyse {row['Match']}. Absents : {row['Absents_Dom']} / {row['Absents_Ext']}")
