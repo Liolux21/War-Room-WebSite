@@ -31,7 +31,7 @@ ALL_REFEREES = sorted(list(set([ref for sub in REFEREES_DB.values() for ref in s
 STATS_COLS = ['H_1x2', 'A_1x2', 'H_AH', 'A_AH', 'H_Over', 'A_Over', 'H_1stGoal', 'A_1stGoal', 'H_BTTS', 'A_BTTS', 'H_RTP', 'A_RTP', 'H_RTA', 'A_RTA', 'H_AttD', 'A_AttD', 'H_Shots', 'A_Shots', 'H_TirC', 'A_TirC', 'H_TirH', 'A_TirH']
 BASE_COLS = ['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1', 'GO_Etape2', 'GO_Etape3', 'Absents_Dom', 'Absents_Ext']
 VERDICT_COLS = ['Conf_AIStats', 'Conf_FotMob', 'Type_Pari', 'Palier_Snowball', 'Meteo', 'Arbitre', 'Pari_Final']
-COTES_COLS = ['Cotes_1X2', 'Cotes_Goals', 'Cotes_Hdc'] # NOUVEAU: Colonnes pour stocker les cotes
+COTES_COLS = ['Cotes_1X2', 'Cotes_Goals', 'Cotes_Hdc']
 ALL_COLS = BASE_COLS + STATS_COLS + VERDICT_COLS + COTES_COLS
 
 @st.cache_data
@@ -113,7 +113,13 @@ with st.sidebar:
         if st.button("Restaurer les données", use_container_width=True):
             imported_data = json.load(uploaded_file)
             for k, v in imported_data.items():
-                st.session_state.all_sessions[k] = pd.DataFrame(v)
+                df_imported = pd.DataFrame(v)
+                # PATCH RÉTROCOMPATIBILITÉ : Ajout des colonnes si elles manquent dans l'ancienne sauvegarde
+                for col in ALL_COLS:
+                    if col not in df_imported.columns:
+                        df_imported[col] = None
+                st.session_state.all_sessions[k] = df_imported
+                
             st.success("✅ War Room restaurée Intégralement !")
             st.rerun()
 
@@ -152,7 +158,6 @@ with tab2:
                 edited_d = st.data_editor(df_d, key=f"d_{idx}", use_container_width=True, height=500)
                 
                 if st.button(f"💾 Valider Stats {row['Match']}", key=f"s_{idx}"):
-                    # CORRECTION: On sauvegarde réellement toutes les stats dans la base de données !
                     suffixes = ['_1x2', '_AH', '_Over', '_1stGoal', '_BTTS', None, '_RTP', '_RTA', '_AttD', '_Shots', '_TirC', '_TirH']
                     for i, suf in enumerate(suffixes):
                         if suf is not None:
@@ -174,6 +179,12 @@ with tab3:
     df_inf = cur_inf[cur_inf['GO_Etape2'] == True] if not cur_inf.empty and 'GO_Etape2' in cur_inf.columns else pd.DataFrame()
     if df_inf.empty: st.info("Validez l'étape 2.")
     else:
+        # DOUBLE SÉCURITÉ PANDAS
+        if 'Absents_Dom' not in st.session_state.all_sessions[session_active].columns:
+            st.session_state.all_sessions[session_active]['Absents_Dom'] = None
+        if 'Absents_Ext' not in st.session_state.all_sessions[session_active].columns:
+            st.session_state.all_sessions[session_active]['Absents_Ext'] = None
+            
         st.session_state.all_sessions[session_active]['Absents_Dom'] = st.session_state.all_sessions[session_active]['Absents_Dom'].astype(object)
         st.session_state.all_sessions[session_active]['Absents_Ext'] = st.session_state.all_sessions[session_active]['Absents_Ext'].astype(object)
 
@@ -182,9 +193,8 @@ with tab3:
                 dom, ext = row['Match'].split(' vs ')
                 l_dom, l_ext = get_roster(dom, players_db), get_roster(ext, players_db)
                 
-                # CORRECTION: On vérifie s'il y a des blessés DEJA SAUVEGARDES dans la ligne avant d'utiliser la mémoire vide
-                saved_dom = row['Absents_Dom'] if isinstance(row['Absents_Dom'], list) and len(row['Absents_Dom']) > 0 else []
-                saved_ext = row['Absents_Ext'] if isinstance(row['Absents_Ext'], list) and len(row['Absents_Ext']) > 0 else []
+                saved_dom = row['Absents_Dom'] if pd.notna(row['Absents_Dom']) and isinstance(row['Absents_Dom'], list) and len(row['Absents_Dom']) > 0 else []
+                saved_ext = row['Absents_Ext'] if pd.notna(row['Absents_Ext']) and isinstance(row['Absents_Ext'], list) and len(row['Absents_Ext']) > 0 else []
                 
                 if not saved_dom: saved_dom = [st.session_state['memo'][p] for p in l_dom if 'memo' in st.session_state and p in st.session_state['memo']]
                 if not saved_ext: saved_ext = [st.session_state['memo'][p] for p in l_ext if 'memo' in st.session_state and p in st.session_state['memo']]
@@ -206,18 +216,19 @@ with tab4:
     df_cotes = cur_cotes[cur_cotes['GO_Etape3'] == True] if not cur_cotes.empty and 'GO_Etape3' in cur_cotes.columns else pd.DataFrame()
     if df_cotes.empty: st.info("Validez l'étape 3.")
     else:
-        # SÉCURITÉ PANDAS pour les listes
-        for c in ['Cotes_1X2', 'Cotes_Goals', 'Cotes_Hdc']:
+        # SÉCURITÉ PANDAS : Ajout des colonnes si elles n'existent pas (Rétrocompatibilité JSON)
+        for c in COTES_COLS:
+            if c not in st.session_state.all_sessions[session_active].columns:
+                st.session_state.all_sessions[session_active][c] = None
             st.session_state.all_sessions[session_active][c] = st.session_state.all_sessions[session_active][c].astype(object)
 
         for idx, row in df_cotes.iterrows():
             with st.expander(f"💰 {row['Match']}", expanded=True):
                 dom, ext = row['Match'].split(' vs ')
                 
-                # CORRECTION: Récupération des cotes sauvegardées ou création de la matrice par défaut
-                c1_data = row['Cotes_1X2'] if isinstance(row['Cotes_1X2'], list) and len(row['Cotes_1X2']) > 0 else [{"Marché": m, "Cote": 1.0} for m in ["1","X","2","DNB 1","DNB 2","1X","X2"]]
-                c2_data = row['Cotes_Goals'] if isinstance(row['Cotes_Goals'], list) and len(row['Cotes_Goals']) > 0 else [{"Marché": m, "Cote": 1.0} for m in ["BTTS Oui","BTTS Non","Over 1.5","Over 2.5","Over 3.5","Under 1.5","Under 2.5","Under 3.5"]]
-                c3_data = row['Cotes_Hdc'] if isinstance(row['Cotes_Hdc'], list) and len(row['Cotes_Hdc']) > 0 else [{"Hdc": h, "Cote Dom": 1.0, "Cote Ext": 1.0} for h in ["-1.5","-0.5","0.5","1.5"]]
+                c1_data = row['Cotes_1X2'] if pd.notna(row['Cotes_1X2']) and isinstance(row['Cotes_1X2'], list) and len(row['Cotes_1X2']) > 0 else [{"Marché": m, "Cote": 1.0} for m in ["1","X","2","DNB 1","DNB 2","1X","X2"]]
+                c2_data = row['Cotes_Goals'] if pd.notna(row['Cotes_Goals']) and isinstance(row['Cotes_Goals'], list) and len(row['Cotes_Goals']) > 0 else [{"Marché": m, "Cote": 1.0} for m in ["BTTS Oui","BTTS Non","Over 1.5","Over 2.5","Over 3.5","Under 1.5","Under 2.5","Under 3.5"]]
+                c3_data = row['Cotes_Hdc'] if pd.notna(row['Cotes_Hdc']) and isinstance(row['Cotes_Hdc'], list) and len(row['Cotes_Hdc']) > 0 else [{"Hdc": h, "Cote Dom": 1.0, "Cote Ext": 1.0} for h in ["-1.5","-0.5","0.5","1.5"]]
 
                 c1, c2, c3 = st.columns(3)
                 with c1: e_c1 = st.data_editor(pd.DataFrame(c1_data), key=f"c1_{idx}", hide_index=True)
