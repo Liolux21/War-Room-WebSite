@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import os
 
 # 1. CONFIGURATION DE LA PAGE
 st.set_page_config(page_title="War Room - Sniper Dashboard", layout="wide")
@@ -9,7 +10,9 @@ st.set_page_config(page_title="War Room - Sniper Dashboard", layout="wide")
 def load_players_db():
     try:
         # Lecture du fichier CSV pour extraire les joueurs par équipe
-        df = pd.read_csv("MASTER_ANALYSE_2026-04-02.csv")
+        base_path = os.path.dirname(__file__) # Trouve le dossier où est le script
+        file_path = os.path.join(base_path, "MASTER_ANALYSE_2026-04-02.csv")
+        df = pd.read_csv(file_path)
         # Création d'un dictionnaire { 'Equipe': [Liste des Joueurs] }
         players_db = df.groupby('Equipe')['Joueur'].apply(list).to_dict()
         return players_db
