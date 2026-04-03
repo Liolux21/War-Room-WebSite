@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import time
 import os
+import json
 from datetime import datetime, timedelta
 
 # 1. CONFIGURATION
@@ -95,6 +96,34 @@ with st.sidebar:
         st.session_state.all_sessions["Week-end en cours"] = st.session_state.all_sessions["Week-end prochain"].copy()
         st.session_state.all_sessions["Week-end prochain"] = pd.DataFrame(columns=ALL_COLS)
         st.rerun()
+
+# ==========================================
+    # 💾 SAUVEGARDE & SYNCHRO
+    # ==========================================
+    st.divider()
+    st.subheader("💾 Sauvegarde & Synchro")
+    
+    # Bouton d'exportation
+    export_dict = {k: v.to_dict(orient="records") for k, v in st.session_state.all_sessions.items()}
+    json_data = json.dumps(export_dict)
+    
+    st.download_button(
+        label="⬇️ Exporter ma War Room",
+        data=json_data,
+        file_name=f"war_room_save_{datetime.now().strftime('%Y%m%d')}.json",
+        mime="application/json",
+        use_container_width=True
+    )
+    
+    # Bouton d'importation
+    uploaded_file = st.file_uploader("⬆️ Importer une sauvegarde", type="json")
+    if uploaded_file is not None:
+        if st.button("Restaurer les données", use_container_width=True):
+            imported_data = json.load(uploaded_file)
+            for k, v in imported_data.items():
+                st.session_state.all_sessions[k] = pd.DataFrame(v)
+            st.success("✅ War Room restaurée !")
+            st.rerun()
 
 # ==========================================
 # 🏗️ INTERFACE
