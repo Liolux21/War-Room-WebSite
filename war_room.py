@@ -1,6 +1,29 @@
 import streamlit as st
 import pandas as pd
 import os
+from datetime import datetime, timedelta
+
+def get_weekend_dates():
+    """Calcule les dates du prochain week-end (Vendredi à Lundi)"""
+    today = datetime.now()
+    # On cherche le prochain vendredi (4ème jour de la semaine, 0=Lundi)
+    days_until_friday = (4 - today.weekday()) % 7
+    friday = today + timedelta(days=days_until_friday)
+    monday = friday + timedelta(days=3)
+    return friday.date(), monday.date()
+
+def run_european_scan(start_date, end_date):
+    """
+    Ici, tu insères la logique de ton script Python actuel.
+    Pour l'exemple, je crée une structure qui simule le résultat du scan.
+    """
+    # SIMULATION DU SCAN (À remplacer par ton code de scraping/API)
+    scanned_matches = [
+        {"Date": "2026-04-03", "Heure": "21:00", "Match": "Sevilla vs Granada", "Ligue": "La Liga", "Favori": "Sevilla", "Confiance_Initiale": "68%"},
+        {"Date": "2026-04-04", "Heure": "18:30", "Match": "Bayern vs Leipzig", "Ligue": "Bundesliga", "Favori": "Bayern", "Confiance_Initiale": "72%"},
+        {"Date": "2026-04-05", "Heure": "15:00", "Match": "Monaco vs Lille", "Ligue": "Ligue 1", "Favori": "Monaco", "Confiance_Initiale": "64%"},
+    ]
+    return pd.DataFrame(scanned_matches)
 
 # 1. CONFIGURATION DE LA PAGE
 st.set_page_config(page_title="War Room - Sniper Dashboard", layout="wide")
@@ -48,21 +71,54 @@ st.title("🎯 War Room - Betting Pipeline")
 tab1, tab2, tab3, tab4 = st.tabs(["📡 Radar", "📊 Stats (Duel)", "🏥 Infirmerie", "🧮 Verdict Final"])
 
 # ==========================================
-# ONGLET 1 : RADAR
+# ONGLET 1 : LE RADAR
 # ==========================================
 with tab1:
     st.header(f"1. Sélection Radar : {session_active}")
-    cols_radar = ['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1']
     
-    # On récupère le DF de la session
+    # Boutons d'action
+    col_scan, col_clear = st.columns([1, 1])
+    
+    with col_scan:
+        if st.button("🌍 Lancer le Scan Europe (Week-end)"):
+            start, end = get_weekend_dates()
+            with st.spinner(f"Scan en cours du {start} au {end}..."):
+                # 1. On récupère les nouveaux matchs
+                new_matches_df = run_european_scan(start, end)
+                
+                # 2. On s'assure qu'ils ont les colonnes GO_Etape1, etc.
+                new_matches_df['GO_Etape1'] = False
+                new_matches_df['GO_Etape2'] = False
+                new_matches_df['GO_Etape3'] = False
+                
+                # 3. On les ajoute à la session actuelle
+                st.session_state.all_sessions[session_active] = pd.concat([
+                    st.session_state.all_sessions[session_active], 
+                    new_matches_df
+                ], ignore_index=True).drop_duplicates(subset=['Match', 'Date'])
+                
+                st.success(f"{len(new_matches_df)} matchs importés avec succès !")
+
+    with col_clear:
+        if st.button("🗑️ Vider le Radar"):
+            st.session_state.all_sessions[session_active] = pd.DataFrame(columns=base_cols + stats_cols)
+            st.rerun()
+
+    st.divider()
+
+    # Affichage du tableau éditable
     df_radar = st.session_state.all_sessions[session_active]
-    
-    edited_radar = st.data_editor(df_radar[cols_radar], use_container_width=True, hide_index=True, key=f"radar_{session_active}", num_rows="dynamic")
-    
-    if st.button("💾 Sauvegarder la sélection Radar", key=f"save_radar_{session_active}"):
-        # On fusionne les modifs dans la session (en gérant les nouvelles lignes)
-        st.session_state.all_sessions[session_active].update(edited_radar)
-        st.success("Radar mis à jour !")
+    if not df_radar.empty:
+        edited_radar = st.data_editor(
+            df_radar[['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1']], 
+            use_container_width=True, 
+            hide_index=True, 
+            key=f"radar_ed_{session_active}"
+        )
+        
+        if st.button("💾 Sauvegarder les sélections"):
+            st.session_state.all_sessions[session_active].update(edited_radar)
+            st.success("Sélections enregistrées !")
 
 # ==========================================
 # ONGLET 2 : SALLE DES MACHINES
