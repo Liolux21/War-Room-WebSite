@@ -9,17 +9,32 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="War Room - Sniper Dashboard", layout="wide")
 
 # ==========================================
-# 🔐 CONFIGURATION API & FILTRES
+# 🔐 CONFIGURATION & DATA
 # ==========================================
 API_KEY = "2a2acdc61d034feb909c10b63b916195"
 COMPETITIONS = ['PL', 'PD', 'BL1', 'SA', 'FL1', 'CL', 'DED', 'PPL']
 BIG_SIX_KEYWORDS = ["Ajax", "PSV", "Feyenoord", "Sporting", "Porto", "Benfica"]
 
-# Ajout des colonnes pour les nouveaux indices de confiance et types de paris
-EXTRA_VALS = ['Conf_AIStats', 'Conf_FotMob', 'Type_Pari', 'Palier_Snowball']
+# --- Base de données Arbitres (Exemples principaux par ligue) ---
+REFEREES_DB = {
+    'PL': ["Anthony Taylor", "Michael Oliver", "Paul Tierney", "Simon Hooper", "Chris Kavanagh"],
+    'PD': ["Gil Manzano", "Sánchez Martínez", "Munuera Montero", "Alberola Rojas"],
+    'BL1': ["Felix Zwayer", "Deniz Aytekin", "Daniel Siebert", "Tobias Stieler"],
+    'SA': ["Daniele Orsato", "Davide Massa", "Marco Guida", "Fabio Maresca"],
+    'FL1': ["Benoît Bastien", "François Letexier", "Clément Turpin", "Stéphanie Frappart"],
+    'DED': ["Danny Makkelie", "Serdar Gözübüyük", "Allard Lindhout"],
+    'PPL': ["Artur Soares Dias", "Tiago Martins", "Fabio Verissimo"],
+    'CL': ["Szymon Marciniak", "Slavko Vincic", "István Kovács"]
+}
+
+# Liste plate pour la configuration du data_editor
+ALL_REFEREES = sorted(list(set([ref for sub in REFEREES_DB.values() for ref in sub])))
+
+# Colonnes
 STATS_COLS = ['H_1x2', 'A_1x2', 'H_AH', 'A_AH', 'H_Over', 'A_Over', 'H_1stGoal', 'A_1stGoal', 'H_BTTS', 'A_BTTS', 'H_RTP', 'A_RTP', 'H_RTA', 'A_RTA', 'H_AttD', 'A_AttD', 'H_Shots', 'A_Shots', 'H_TirC', 'A_TirC', 'H_TirH', 'A_TirH']
-BASE_COLS = ['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1', 'GO_Etape2', 'GO_Etape3', 'Absents_Dom', 'Absents_Ext', 'Cote_Cible', 'Pari_Final']
-ALL_COLS = BASE_COLS + STATS_COLS + EXTRA_VALS
+BASE_COLS = ['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1', 'GO_Etape2', 'GO_Etape3', 'Absents_Dom', 'Absents_Ext']
+VERDICT_COLS = ['Conf_AIStats', 'Conf_FotMob', 'Type_Pari', 'Palier_Snowball', 'Meteo', 'Arbitre', 'Pari_Final']
+ALL_COLS = BASE_COLS + STATS_COLS + VERDICT_COLS
 
 @st.cache_data
 def load_players_db():
@@ -69,11 +84,12 @@ if 'all_sessions' not in st.session_state:
     st.session_state.all_sessions = {}
 
 with st.sidebar:
-    st.header("⚙️ Gestion Sessions")
+    st.header("⚙️ Paramètres")
     session_active = st.selectbox("Session active :", ["Week-end en cours", "Week-end prochain", "Archives"])
     if session_active not in st.session_state.all_sessions or st.session_state.all_sessions[session_active].empty:
         st.session_state.all_sessions[session_active] = pd.DataFrame(columns=ALL_COLS)
     
+    st.divider()
     if st.button("🔄 Basculer Prochain ➔ En Cours"):
         st.session_state.all_sessions["Archives"] = st.session_state.all_sessions["Week-end en cours"].copy()
         st.session_state.all_sessions["Week-end en cours"] = st.session_state.all_sessions["Week-end prochain"].copy()
@@ -81,7 +97,7 @@ with st.sidebar:
         st.rerun()
 
 # ==========================================
-# 🏗️ INTERFACE PAR ONGLETS
+# 🏗️ INTERFACE
 # ==========================================
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📡 Radar", "📊 Stats", "🏥 Infirmerie", "💰 Cotes", "🏆 Verdict"])
 
@@ -101,7 +117,7 @@ with tab1:
         edited = st.data_editor(df_radar[['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1']], use_container_width=True, hide_index=True, height=600)
         if st.button("💾 Sauvegarder Radar"): st.session_state.all_sessions[session_active].update(edited); st.success("Enregistré !")
 
-# --- 2. STATS ---
+# --- 2. STATS (DUEL) ---
 with tab2:
     cur_df = st.session_state.all_sessions[session_active]
     matches = cur_df[cur_df['GO_Etape1'] == True] if not cur_df.empty else pd.DataFrame()
@@ -116,7 +132,7 @@ with tab2:
                 if st.button(f"💾 Valider Stats {row['Match']}", key=f"s_{idx}"):
                     st.session_state.all_sessions[session_active].at[idx, 'GO_Etape2'] = True; st.rerun()
 
-# --- 3. INFIRMERIE ---
+# --- 3. INFIRMERIE --- (Inchangé)
 with tab3:
     if st.button("🔄 Charger Mémoire"):
         source = "Week-end en cours" if session_active == "Week-end prochain" else "Archives"
@@ -124,7 +140,6 @@ with tab3:
             old = st.session_state.all_sessions[source]
             st.session_state['memo'] = {p['Joueur']: p for _, r in old.iterrows() for side in ['Absents_Dom', 'Absents_Ext'] if isinstance(r[side], list) for p in r[side] if p.get('Durée') == "Out"}
             st.success("Mémoire chargée.")
-
     cur_inf = st.session_state.all_sessions[session_active]
     df_inf = cur_inf[cur_inf['GO_Etape2'] == True] if not cur_inf.empty else pd.DataFrame()
     if df_inf.empty: st.info("Validez l'étape 2.")
@@ -157,36 +172,38 @@ with tab4:
                 with c2: st.data_editor(pd.DataFrame({"Marché": ["BTTS Oui","BTTS Non","Over 1.5","Over 2.5","Over 3.5","Under 1.5","Under 2.5","Under 3.5"], "Cote": [1.0]*8}), key=f"c2_{idx}", hide_index=True)
                 with c3: st.data_editor(pd.DataFrame({"Hdc": ["-1.5","-0.5","0.5","1.5"], "Cote Dom": [1.0]*4, "Cote Ext": [1.0]*4}), key=f"c3_{idx}", hide_index=True)
 
-# --- 5. VERDICT (SYNTHÈSE) ---
+# --- 5. VERDICT ---
 with tab5:
-    st.header(f"Verdict & Plan de Mise : {session_active}")
-    df_verdict = st.session_state.all_sessions[session_active]
-    # On affiche les matchs dès qu'ils sont cochés au Radar (GO_Etape1)
-    df_v = df_verdict[df_verdict['GO_Etape1'] == True] if not df_verdict.empty else pd.DataFrame()
+    st.header(f"Verdict Final : {session_active}")
+    df_v = st.session_state.all_sessions[session_active]
+    # On affiche tout ce qui est coché GO au Radar
+    df_final = df_v[df_v['GO_Etape1'] == True] if not df_v.empty else pd.DataFrame()
     
-    if df_v.empty: st.info("Aucun match sélectionné au Radar.")
+    if df_final.empty: st.info("Cochez des matchs au Radar.")
     else:
-        # Configuration des colonnes pour le Verdict
+        # Configuration des colonnes dynamiques
         edited_v = st.data_editor(
-            df_v[['Date', 'Heure', 'Match', 'Confiance_Initiale', 'Conf_AIStats', 'Conf_FotMob', 'Type_Pari', 'Palier_Snowball', 'Pari_Final']],
+            df_final[['Date', 'Heure', 'Match', 'Confiance_Initiale', 'Conf_AIStats', 'Conf_FotMob', 'Type_Pari', 'Palier_Snowball', 'Meteo', 'Arbitre', 'Pari_Final']],
             column_config={
                 "Type_Pari": st.column_config.SelectboxColumn("Type", options=["Value Bet", "Snowball"], required=True),
                 "Palier_Snowball": st.column_config.SelectboxColumn("Palier", options=["N/A", "1", "2", "3", "4", "5", "Bonus"]),
-                "Conf_AIStats": st.column_config.TextColumn("Ind. AI Stats"),
-                "Conf_FotMob": st.column_config.TextColumn("Ind. FotMob")
+                "Meteo": st.column_config.SelectboxColumn("Météo", options=["Beau temps", "Pluie", "Vent fort", "Froid intense", "Neige"]),
+                "Arbitre": st.column_config.SelectboxColumn("Arbitre", options=ALL_REFEREES),
+                "Pari_Final": st.column_config.TextColumn("Pari Final", placeholder="Ex: Victoire Dom + Over 1.5")
             },
-            use_container_width=True, hide_index=True, key=f"verdict_ed_{session_active}"
+            use_container_width=True, hide_index=True, height=600, key=f"ved_{session_active}"
         )
-        if st.button("💾 Sauvegarder Verdict Final"):
+        if st.button("💾 Sauvegarder Verdict"):
             st.session_state.all_sessions[session_active].update(edited_v)
-            st.success("Verdict mis à jour !")
-        
+            st.success("Données sauvegardées !")
+
         st.divider()
-        for idx, row in df_v.iterrows():
-            if st.button(f"📰 Générer Prompt Final : {row['Match']}", key=f"pf_{idx}"):
-                p = f"### ANALYSE FINALE : {row['Match']} ###\n"
-                p += f"Indices : Initial({row['Confiance_Initiale']}) | AI Stats({row['Conf_AIStats']}) | FotMob({row['Conf_FotMob']})\n"
+        for idx, row in df_final.iterrows():
+            if st.button(f"📰 Générer Prompt : {row['Match']}", key=f"pb_{idx}"):
+                p = f"### ANALYSE SNIPER : {row['Match']} ###\n"
+                p += f"Confiances : Init({row['Confiance_Initiale']}) | AI({row['Conf_AIStats']}) | FotMob({row['Conf_FotMob']})\n"
                 p += f"Stratégie : {row['Type_Pari']} (Palier: {row['Palier_Snowball']})\n"
+                p += f"Contexte : Météo {row['Meteo']} | Arbitre: {row['Arbitre']}\n"
                 p += f"Absents : {row['Absents_Dom']} / {row['Absents_Ext']}\n"
-                p += "Peux-tu me donner le feu vert tactique final (Revue de presse + Climat club) ?"
+                p += "Donne-moi ton verdict final basé sur la revue de presse locale et les enjeux du club."
                 st.code(p)
