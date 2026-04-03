@@ -74,18 +74,86 @@ with tab2:
             valid_stats = st.session_state.master_df[st.session_state.master_df['GO_Etape2'] == True]
             st.code(f"Voici les stats AIStats pour analyse :\n{valid_stats.to_string()}", language="text")
 
-# --- ONGLET 3 : INFIRMERIE ---
+# --- ONGLET 3 : L'INFIRMERIE ---
 with tab3:
-    st.header("3. État des troupes")
+    st.header("3. État des troupes (Détails des absences)")
+    
+    # On récupère les matchs validés à l'étape 2
     df_inf = st.session_state.master_df[st.session_state.master_df['GO_Etape2'] == True]
-    if not df_inf.empty:
-        edited_inf = st.data_editor(df_inf[['Match', 'Absents_Dom', 'Absents_Ext', 'GO_Etape3']], use_container_width=True, hide_index=True)
-        st.session_state.master_df.update(edited_inf)
-        
-        if st.button("🤖 Envoyer l'Infirmerie à l'IA"):
-            st.code(f"Analyse des absents demandée pour :\n{edited_inf.to_string()}", language="text")
+    
+    if df_inf.empty:
+        st.info("Veuillez valider des matchs à l'étape 2 (Stats) pour remplir l'infirmerie.")
     else:
-        st.info("Validez l'étape 2 d'abord.")
+        for idx, row in df_inf.iterrows():
+            with st.expander(f"🏥 Infirmerie : {row['Match']}", expanded=True):
+                dom, ext = row['Match'].split(' vs ')
+                
+                col_dom, col_ext = st.columns(2)
+                
+                with col_dom:
+                    st.subheader(f"🏠 {dom}")
+                    # Configuration du tableau des absents Domicile
+                    df_abs_dom = st.data_editor(
+                        pd.DataFrame(columns=['Joueur', 'Type', 'Durée']),
+                        key=f"abs_dom_{idx}",
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        column_config={
+                            "Type": st.column_config.SelectboxColumn(
+                                "Type d'absence",
+                                options=["Blessé", "Malade", "Suspendu"],
+                                required=True,
+                            ),
+                            "Durée": st.column_config.SelectboxColumn(
+                                "Disponibilité",
+                                options=["Incertain", "Out"],
+                                required=True,
+                            )
+                        }
+                    )
+                    # Logique automatique : Si Suspendu -> Out
+                    df_abs_dom.loc[df_abs_dom['Type'] == "Suspendu", "Durée"] = "Out"
+
+                with col_ext:
+                    st.subheader(f"🚀 {ext}")
+                    # Configuration du tableau des absents Extérieur
+                    df_abs_ext = st.data_editor(
+                        pd.DataFrame(columns=['Joueur', 'Type', 'Durée']),
+                        key=f"abs_ext_{idx}",
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        column_config={
+                            "Type": st.column_config.SelectboxColumn(
+                                "Type d'absence",
+                                options=["Blessé", "Malade", "Suspendu"],
+                                required=True,
+                            ),
+                            "Durée": st.column_config.SelectboxColumn(
+                                "Disponibilité",
+                                options=["Incertain", "Out"],
+                                required=True,
+                            )
+                        }
+                    )
+                    # Logique automatique : Si Suspendu -> Out
+                    df_abs_ext.loc[df_abs_ext['Type'] == "Suspendu", "Durée"] = "Out"
+
+                # Bouton de validation pour passer à l'étape finale
+                if st.checkbox("Valider l'impact des absences pour ce match", key=f"check_inf_{idx}"):
+                    st.session_state.master_df.at[idx, 'GO_Etape3'] = True
+                    st.session_state.master_df.at[idx, 'Absents_Dom'] = df_abs_dom.to_dict('records')
+                    st.session_state.master_df.at[idx, 'Absents_Ext'] = df_abs_ext.to_dict('records')
+
+        st.divider()
+        if st.button("🤖 Envoyer l'Analyse d'Impact à l'IA"):
+            valid_inf = st.session_state.master_df[st.session_state.master_df['GO_Etape3'] == True]
+            prompt = "Analyse d'impact des effectifs demandée :\n\n"
+            for _, r in valid_inf.iterrows():
+                prompt += f"MATCH : {r['Match']}\n"
+                prompt += f"Absents {dom} : {r['Absents_Dom']}\n"
+                prompt += f"Absents {ext} : {r['Absents_Ext']}\n"
+                prompt += "-------------------\n"
+            st.code(prompt, language="text")
 
 # --- ONGLET 4 : VERDICT ---
 with tab4:
