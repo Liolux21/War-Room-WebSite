@@ -13,9 +13,10 @@ st.set_page_config(page_title="War Room - Sniper Dashboard", layout="wide")
 # ==========================================
 API_KEY = "2a2acdc61d034feb909c10b63b916195"
 COMPETITIONS = ['PL', 'PD', 'BL1', 'SA', 'FL1', 'CL', 'DED', 'PPL']
-BIG_SIX_NAMES = ["AFC Ajax", "PSV", "Feyenoord", "Sporting CP", "FC Porto", "SL Benfica"]
 
-# Définition des colonnes pour éviter les KeyError
+# Mots-clés pour ne pas rater les gros même si l'API change le nom
+BIG_SIX_KEYWORDS = ["Ajax", "PSV", "Feyenoord", "Sporting", "Porto", "Benfica"]
+
 STATS_COLS = ['H_1x2', 'A_1x2', 'H_AH', 'A_AH', 'H_Over', 'A_Over', 'H_1stGoal', 'A_1stGoal', 'H_BTTS', 'A_BTTS', 'H_RTP', 'A_RTP', 'H_RTA', 'A_RTA', 'H_AttD', 'A_AttD', 'H_Shots', 'A_Shots', 'H_TirC', 'A_TirC', 'H_TirH', 'A_TirH']
 BASE_COLS = ['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1', 'GO_Etape2', 'GO_Etape3', 'Absents_Dom', 'Absents_Ext', 'Cote_Cible', 'Pari_Final']
 ALL_COLS = BASE_COLS + STATS_COLS
@@ -33,7 +34,7 @@ def load_players_db():
 players_db = load_players_db()
 
 # ==========================================
-# 📡 FONCTIONS DE SCAN
+# 📡 FONCTIONS DE SCAN & ROULEMENT
 # ==========================================
 def get_target_dates(session_name):
     today = datetime.now()
@@ -46,19 +47,6 @@ def get_target_dates(session_name):
     end_date = start_date + timedelta(days=3)
     return start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
 
-def get_force_dict(league_code, headers):
-    url = f"https://api.football-data.org/v4/competitions/{league_code}/standings"
-    try:
-        res = requests.get(url, headers=headers, timeout=10).json()
-        force_dict = {}
-        if 'standings' in res:
-            for s in res['standings']:
-                if s['type'] == 'TOTAL':
-                    for t in s['table']:
-                        force_dict[t['team']['name']] = {'pos': t['position'], 'pts': t['points'], 'gd': t['goalDifference']}
-        return force_dict
-    except: return {}
-
 def run_super_scanner(session_name):
     headers = {'X-Auth-Token': API_KEY}
     date_from, date_to = get_target_dates(session_name)
@@ -68,23 +56,23 @@ def run_super_scanner(session_name):
     for i, league in enumerate(COMPETITIONS):
         progress_bar.progress((i + 1) / len(COMPETITIONS))
         try:
-            force_dict = get_force_dict(league, headers)
-            time.sleep(1.2)
             url_m = f"https://api.football-data.org/v4/competitions/{league}/matches?dateFrom={date_from}&dateTo={date_to}"
             res_m = requests.get(url_m, headers=headers, timeout=10).json()
+            
             if 'matches' in res_m and res_m['matches']:
                 for m in res_m['matches']:
                     dom, ext = m['homeTeam']['name'], m['awayTeam']['name']
-                    if league in ['DED', 'PPL'] and dom not in BIG_SIX_NAMES and ext not in BIG_SIX_NAMES: continue
-                    d_dom = force_dict.get(dom, {'pos': 10, 'pts': 0, 'gd': 0})
-                    d_ext = force_dict.get(ext, {'pos': 10, 'pts': 0, 'gd': 0})
-                    ecart = abs(d_dom['pos'] - d_ext['pos'])
                     
-                    row = {c: 0 for c in ALL_COLS} # Initialisation propre
+                    # FILTRE RELAXÉ : On cherche si un mot-clé est présent dans le nom
+                    is_big_six = any(kw in dom or kw in ext for kw in BIG_SIX_KEYWORDS)
+                    if league in ['DED', 'PPL'] and not is_big_six:
+                        continue
+                    
+                    row = {c: 0 for c in ALL_COLS}
                     row.update({
                         'Date': m['utcDate'][:10], 'Heure': m['utcDate'][11:16], 'Match': f"{dom} vs {ext}",
-                        'Ligue': league, 'Favori': dom if d_dom['pos'] < d_ext['pos'] else ext,
-                        'Confiance_Initiale': f"{min(95, 50 + (ecart * 3))}%", 'GO_Etape1': False, 'GO_Etape2': False, 'GO_Etape3': False,
+                        'Ligue': league, 'Favori': 'À vérifier',
+                        'Confiance_Initiale': 'N/A', 'GO_Etape1': False, 'GO_Etape2': False, 'GO_Etape3': False,
                         'Absents_Dom': [], 'Absents_Ext': [], 'Pari_Final': ''
                     })
                     matchs_list.append(row)
@@ -93,18 +81,26 @@ def run_super_scanner(session_name):
     return pd.DataFrame(matchs_list)
 
 # ==========================================
-# ⚙️ GESTION SESSIONS
+# ⚙️ GESTION SESSIONS & ROULEMENT
 # ==========================================
 if 'all_sessions' not in st.session_state:
     st.session_state.all_sessions = {}
 
 with st.sidebar:
-    st.header("⚙️ Paramètres")
-    session_active = st.selectbox("Session de travail :", ["Week-end en cours", "Week-end prochain", "Archives"])
+    st.header("⚙️ Gestion Sessions")
+    session_active = st.selectbox("Session active :", ["Week-end en cours", "Week-end prochain", "Archives"])
     
-    # SECURITÉ : Initialisation forcée si session vide ou inexistante
-    if session_active not in st.session_state.all_sessions or st.session_state.all_sessions[session_active].empty:
+    if session_active not in st.session_state.all_sessions:
         st.session_state.all_sessions[session_active] = pd.DataFrame(columns=ALL_COLS)
+    
+    st.divider()
+    if st.button("🔄 Basculer Prochain ➔ En Cours"):
+        if "Week-end prochain" in st.session_state.all_sessions:
+            st.session_state.all_sessions["Archives"] = st.session_state.all_sessions["Week-end en cours"].copy()
+            st.session_state.all_sessions["Week-end en cours"] = st.session_state.all_sessions["Week-end prochain"].copy()
+            st.session_state.all_sessions["Week-end prochain"] = pd.DataFrame(columns=ALL_COLS)
+            st.success("Roulement effectué ! Le futur est devenu le présent.")
+            st.rerun()
 
 # ==========================================
 # 🏗️ INTERFACE
@@ -122,17 +118,18 @@ with tab1:
                 st.session_state.all_sessions[session_active] = new_df.sort_values(by=['Date', 'Heure'])
                 st.rerun()
     with c2:
-        if st.button("🗑️ Vider"):
+        if st.button("🗑️ Vider Radar"):
             st.session_state.all_sessions[session_active] = pd.DataFrame(columns=ALL_COLS)
             st.rerun()
 
     df_radar = st.session_state.all_sessions[session_active]
     if not df_radar.empty:
         edited = st.data_editor(df_radar[['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1']], use_container_width=True, hide_index=True, height=600)
-        if st.button("💾 Sauvegarder"):
+        if st.button("💾 Sauvegarder Radar"):
             st.session_state.all_sessions[session_active].update(edited)
-            st.success("Radar enregistré !")
+            st.success("Enregistré !")
 
+# (Les onglets 2, 3 et 4 restent identiques à la version précédente mais pointent sur la session active)
 # --- ONGLET 2 : STATS ---
 with tab2:
     cur_df = st.session_state.all_sessions[session_active]
@@ -151,7 +148,7 @@ with tab2:
 
 # --- ONGLET 3 : INFIRMERIE ---
 with tab3:
-    if st.button("🔄 Récupérer mémoire"):
+    if st.button("🔄 Charger Mémoire (Archives/En cours)"):
         source = "Week-end en cours" if session_active == "Week-end prochain" else "Archives"
         if source in st.session_state.all_sessions:
             old = st.session_state.all_sessions[source]
