@@ -122,7 +122,7 @@ with tab1:
 
     df_radar = st.session_state.all_sessions[session_active]
     if not df_radar.empty:
-        edited = st.data_editor(df_radar[['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1']], use_container_width=True, hide_index=True)
+        edited = st.data_editor(df_radar[['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1']], use_container_width=True, hide_index=True,height=800)
         if st.button("💾 Sauvegarder"):
             st.session_state.all_sessions[session_active].update(edited)
             st.success("Radar enregistré !")
@@ -138,7 +138,7 @@ with tab2:
                 dom, ext = row['Match'].split(' vs ')
                 labels = ["1X2 (%)", "Handicap (%)", "Over (%)", "1st Goal (%)", "BTTS (%)", "---", "RTP", "RTA", "Att. Danger", "Tirs", "Cadrés", "Hors Cadre"]
                 df_d = pd.DataFrame({"Indicateur": labels, dom: [row['H_1x2'], row['H_AH'], row['H_Over'], row['H_1stGoal'], row['H_BTTS'], "", row['H_RTP'], row['H_RTA'], row['H_AttD'], row['H_Shots'], row['H_TirC'], row['H_TirH']], ext: [row['A_1x2'], row['A_AH'], row['A_Over'], row['A_1stGoal'], row['A_BTTS'], "", row['A_RTP'], row['A_RTA'], row['A_AttD'], row['A_Shots'], row['A_TirC'], row['A_TirH']]})
-                edited_d = st.data_editor(df_d, key=f"d_{idx}", use_container_width=True, hide_index=True)
+                edited_d = st.data_editor(df_d, key=f"d_{idx}", use_container_width=True, hide_index=True, height=500)
                 if st.button(f"💾 Valider {row['Match']}", key=f"s_{idx}"):
                     st.session_state.all_sessions[session_active].at[idx, 'H_1x2'] = edited_d.iloc[0, 1]
                     st.session_state.all_sessions[session_active].at[idx, 'A_1x2'] = edited_d.iloc[0, 2]
