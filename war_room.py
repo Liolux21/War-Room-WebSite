@@ -2,8 +2,34 @@ import streamlit as st
 import pandas as pd
 import os
 
-# 1. CONFIGURATION DE LA PAGE
-st.set_page_config(page_title="War Room - Sniper Dashboard", layout="wide")
+# 1. SÉLECTEUR DE SESSION (Tout en haut du script)
+with st.sidebar:
+    st.header("⚙️ Paramètres")
+    session_active = st.selectbox(
+        "Session de travail :",
+        ["Week-end en cours", "Week-end prochain", "Archives"],
+        index=0
+    )
+    st.info(f"📍 Vous travaillez sur : **{session_active}**")
+
+# 2. INITIALISATION MULTI-SESSION
+if 'all_sessions' not in st.session_state:
+    st.session_state.all_sessions = {}
+
+# Si la session sélectionnée n'existe pas encore, on la crée proprement
+if session_active not in st.session_state.all_sessions:
+    # On définit la structure vide pour cette session précise
+    stats_cols = [
+        'H_1x2', 'A_1x2', 'H_AH', 'A_AH', 'H_Over', 'A_Over', 'H_1stGoal', 'A_1stGoal', 'H_BTTS', 'A_BTTS',
+        'H_RTP', 'A_RTP', 'H_RTA', 'A_RTA', 'H_AttD', 'A_AttD', 'H_Shots', 'A_Shots', 'H_TirC', 'A_TirC', 'H_TirH', 'A_TirH'
+    ]
+    base_cols = ['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1', 'GO_Etape2', 'GO_Etape3', 'Absents_Dom', 'Absents_Ext', 'Cote_Cible', 'Pari_Final']
+    
+    # Création du DataFrame pour CETTE session
+    st.session_state.all_sessions[session_active] = pd.DataFrame(columns=base_cols + stats_cols)
+
+# RACCOURCI : On définit 'master_df' comme étant la session active pour ne pas casser le reste du code
+master_df = st.session_state.all_sessions[session_active]
 
 # 2. CHARGEMENT DE LA BASE DE DONNÉES DES JOUEURS (Effectifs)
 @st.cache_data
