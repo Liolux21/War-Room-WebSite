@@ -164,19 +164,71 @@ with tab3:
             st.code(prompt_inf, language="text")
 
 # ==========================================
-# ONGLET 4 : VERDICT FINAL
+# ONGLET 4 : COTES SCOOORE & VERDICT FINAL
 # ==========================================
 with tab4:
-    st.header("4. Cotes & Revue de Presse")
+    st.header("4. Cotes Scooore & Analyse de Value")
+    
+    # On ne garde que les survivants de l'infirmerie
     df_final = st.session_state.master_df[st.session_state.master_df['GO_Etape3'] == True]
     
     if df_final.empty:
-        st.warning("Aucun match n'a survécu à l'entonnoir.")
+        st.warning("Aucun match n'a encore validé l'étape de l'infirmerie.")
     else:
-        edited_final = st.data_editor(df_final[['Match', 'Cote_Cible', 'Pari_Final']], use_container_width=True, hide_index=True, key="final_ed")
-        
-        if st.button("📰 Générer demande Revue de Presse Finale"):
-            for m in df_final['Match'].tolist():
-                st.write(f"--- Rapport pour {m} ---")
-                p = f"Fais-moi l'analyse approfondie (Onze, Tactique, Climat, Verdict) pour {m}. \nDonnées : {st.session_state.master_df[st.session_state.master_df['Match'] == m].to_dict('records')}"
-                st.code(p, language="text")
+        for idx, row in df_final.iterrows():
+            with st.expander(f"💰 Cotes Scooore : {row['Match']}", expanded=True):
+                dom, ext = row['Match'].split(' vs ')
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.subheader("🏆 Issues & DC")
+                    df_issues = st.data_editor(
+                        pd.DataFrame({
+                            "Marché": ["1", "X", "2", "DNB 1", "DNB 2", "1X", "X2"],
+                            "Cote": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+                        }), key=f"cotes_issues_{idx}", use_container_width=True, hide_index=True
+                    )
+                
+                with col2:
+                    st.subheader("⚽ Totaux & BTTS")
+                    df_goals = st.data_editor(
+                        pd.DataFrame({
+                            "Marché": ["BTTS Oui", "BTTS Non", "Over 1.5", "Under 1.5", "Over 2.5", "Under 2.5", "Over 3.5", "Under 3.5"],
+                            "Cote": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+                        }), key=f"cotes_goals_{idx}", use_container_width=True, hide_index=True
+                    )
+                
+                with col3:
+                    st.subheader("📉 Handicaps")
+                    df_handicap = st.data_editor(
+                        pd.DataFrame({
+                            f"Hdc {dom}": ["-1.5", "-0.5", "+0.5", "+1.5"],
+                            "Cote Dom": [1.0, 1.0, 1.0, 1.0],
+                            f"Hdc {ext}": ["-1.5", "-0.5", "+0.5", "+1.5"],
+                            "Cote Ext": [1.0, 1.0, 1.0, 1.0]
+                        }), key=f"cotes_hdc_{idx}", use_container_width=True, hide_index=True
+                    )
+
+                st.divider()
+                # Choix du pari final et calcul de Value
+                c1, c2 = st.columns(2)
+                with c1:
+                    pari_choisi = st.selectbox("Pari final retenu", ["1", "X", "2", "DNB 1", "DNB 2", "BTTS", "Over", "Hdc"], key=f"pari_{idx}")
+                    cote_retenue = st.number_input("Cote finale Scooore", min_value=1.01, value=1.50, step=0.01, key=f"final_cote_{idx}")
+                
+                with c2:
+                    # Calcul automatique de la probabilité implicite (1/cote)
+                    prob_implicite = (1 / cote_retenue) * 100
+                    st.metric("Probabilité Implicite", f"{prob_implicite:.1f}%")
+                    st.info(f"Compare ce chiffre à ton Indice de Confiance ({row['Confiance_Initiale']}). Si l'Indice > Probabilité, c'est une EV+ !")
+
+                if st.button(f"📰 Revue de Presse Finale : {row['Match']}", key=f"btn_revue_{idx}"):
+                    # Compilation de toutes les données saisies pour l'IA
+                    prompt = f"### ANALYSE FINALE : {row['Match']} ###\n"
+                    prompt += f"Ligue : {row['Ligue']} | Confiance Initiale : {row['Confiance_Initiale']}\n"
+                    prompt += f"Pari envisagé : {pari_choisi} à @{cote_retenue}\n"
+                    prompt += f"Absents validés : {row['Absents_Dom']} / {row['Absents_Ext']}\n"
+                    prompt += "\nPeux-tu scanner la presse locale et les conf' de presse pour ce match ?\n"
+                    prompt += "Cherche spécifiquement une rotation surprise pour l'Europe ou une info de vestiaire qui impacterait notre Value."
+                    st.code(prompt, language="text")
