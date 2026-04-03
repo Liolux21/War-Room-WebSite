@@ -194,7 +194,7 @@ with tab4:
                     st.subheader("⚽ Totaux & BTTS")
                     df_goals = st.data_editor(
                         pd.DataFrame({
-                            "Marché": ["BTTS Oui", "BTTS Non", "Over 1.5", "Under 1.5", "Over 2.5", "Under 2.5", "Over 3.5", "Under 3.5"],
+                            "Marché": ["BTTS Oui", "BTTS Non", "Over 1.5", "Over 2.5", "Over 3.5", "Under 1.5", "Under 2.5", "Under 3.5"],
                             "Cote": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
                         }), key=f"cotes_goals_{idx}", use_container_width=True, hide_index=True
                     )
