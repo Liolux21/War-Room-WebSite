@@ -142,13 +142,12 @@ with tab1:
         edited = st.data_editor(df_radar[['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1']], use_container_width=True, hide_index=True, height=600)
         if st.button("💾 Sauvegarder Radar"): st.session_state.all_sessions[session_active].update(edited); st.success("Enregistré !")
 
-# --- 2. STATS (REMASTERISÉ POUR LE JSON) ---
+# --- 2. STATS ---
 with tab2:
     cur_df = st.session_state.all_sessions[session_active]
     matches = cur_df[cur_df['GO_Etape1'] == True] if not cur_df.empty and 'GO_Etape1' in cur_df.columns else pd.DataFrame()
     if matches.empty: st.info("Cochez GO au Radar.")
     else:
-        # Initialisation sécurisée de la colonne JSON si elle n'existe pas
         if 'Stats_Dict' not in st.session_state.all_sessions[session_active].columns:
             st.session_state.all_sessions[session_active]['Stats_Dict'] = None
         st.session_state.all_sessions[session_active]['Stats_Dict'] = st.session_state.all_sessions[session_active]['Stats_Dict'].astype(object)
@@ -156,14 +155,10 @@ with tab2:
         for idx, row in matches.iterrows():
             with st.expander(f"⚔️ {row['Match']}", expanded=True):
                 dom, ext = row['Match'].split(' vs ')
-                
-                # Chargement depuis le JSON (Nouvelle méthode robuste)
                 saved_stats = row.get('Stats_Dict')
                 
-                if isinstance(saved_stats, list) and len(saved_stats) > 0:
-                    df_d = pd.DataFrame(saved_stats)
+                if isinstance(saved_stats, list) and len(saved_stats) > 0: df_d = pd.DataFrame(saved_stats)
                 else:
-                    # Rétrocompatibilité : On essaie de lire les anciennes colonnes si elles existent
                     def sv(v): return "" if pd.isna(v) else v
                     labels = ["1X2 (%)", "AH (%)", "Over (%)", "1stG (%)", "BTTS (%)", "---", "RTP", "RTA", "Att.D", "Tirs", "Cadrés", "Hors C."]
                     h_vals = [sv(row.get('H_1x2')), sv(row.get('H_AH')), sv(row.get('H_Over')), sv(row.get('H_1stGoal')), sv(row.get('H_BTTS')), "", sv(row.get('H_RTP')), sv(row.get('H_RTA')), sv(row.get('H_AttD')), sv(row.get('H_Shots')), sv(row.get('H_TirC')), sv(row.get('H_TirH'))]
@@ -172,12 +167,19 @@ with tab2:
                 
                 edited_d = st.data_editor(df_d, key=f"d_{idx}", use_container_width=True, height=500)
                 
-                if st.button(f"💾 Valider Stats {row['Match']}", key=f"s_{idx}"):
-                    # On enregistre le tableau entier en bloc, 100% compatible JSON
-                    st.session_state.all_sessions[session_active].at[idx, 'Stats_Dict'] = edited_d.to_dict('records')
-                    st.session_state.all_sessions[session_active].at[idx, 'GO_Etape2'] = True
-                    st.success("Stats enregistrées !")
-                    st.rerun() # Rafraîchissement forcé pour sécuriser la donnée
+                cb1, cb2 = st.columns(2)
+                with cb1:
+                    if st.button(f"💾 Valider Stats {row['Match']}", key=f"s_{idx}"):
+                        st.session_state.all_sessions[session_active].at[idx, 'Stats_Dict'] = edited_d.to_dict('records')
+                        st.session_state.all_sessions[session_active].at[idx, 'GO_Etape2'] = True
+                        st.success("Stats enregistrées !")
+                        st.rerun()
+                with cb2:
+                    if st.button(f"📋 Prompt IA (Stats) {row['Match']}", key=f"p_s_{idx}"):
+                        prompt_stats = f"### ÉTAPE 2 : ANALYSE STATS (AIStats) ###\nMatch: {row['Match']}\n"
+                        prompt_stats += edited_d.to_string(index=False)
+                        prompt_stats += "\n\nPeux-tu analyser ces statistiques dynamiques, me proposer d'ajuster mon indice de confiance, et isoler ou écarter les value bets envisagées à l'étape 1 ?"
+                        st.code(prompt_stats, language="text")
 
 # --- 3. INFIRMERIE ---
 with tab3:
@@ -212,12 +214,21 @@ with tab3:
                 with c_d: res_d = st.data_editor(pd.DataFrame(saved_dom if saved_dom else [], columns=['Joueur', 'Type', 'Durée']), key=f"ad_{idx}", num_rows="dynamic", use_container_width=True, column_config={"Joueur": st.column_config.SelectboxColumn("Joueur", options=l_dom), "Type": st.column_config.SelectboxColumn("Type", options=["Blessé", "Malade", "Suspendu"]), "Durée": st.column_config.SelectboxColumn("Durée", options=["Incertain", "Out"])})
                 with c_e: res_e = st.data_editor(pd.DataFrame(saved_ext if saved_ext else [], columns=['Joueur', 'Type', 'Durée']), key=f"ae_{idx}", num_rows="dynamic", use_container_width=True, column_config={"Joueur": st.column_config.SelectboxColumn("Joueur", options=l_ext), "Type": st.column_config.SelectboxColumn("Type", options=["Blessé", "Malade", "Suspendu"]), "Durée": st.column_config.SelectboxColumn("Durée", options=["Incertain", "Out"])})
                 
-                if st.button(f"💾 Valider Infirmerie {row['Match']}", key=f"v_{idx}"):
-                    st.session_state.all_sessions[session_active].at[idx, 'GO_Etape3'] = True
-                    st.session_state.all_sessions[session_active].at[idx, 'Absents_Dom'] = res_d.to_dict('records')
-                    st.session_state.all_sessions[session_active].at[idx, 'Absents_Ext'] = res_e.to_dict('records')
-                    st.success("Infirmerie enregistrée !")
-                    st.rerun()
+                cb1, cb2 = st.columns(2)
+                with cb1:
+                    if st.button(f"💾 Valider Infirmerie {row['Match']}", key=f"v_{idx}"):
+                        st.session_state.all_sessions[session_active].at[idx, 'GO_Etape3'] = True
+                        st.session_state.all_sessions[session_active].at[idx, 'Absents_Dom'] = res_d.to_dict('records')
+                        st.session_state.all_sessions[session_active].at[idx, 'Absents_Ext'] = res_e.to_dict('records')
+                        st.success("Infirmerie enregistrée !")
+                        st.rerun()
+                with cb2:
+                    if st.button(f"📋 Prompt IA (Infirmerie) {row['Match']}", key=f"p_i_{idx}"):
+                        prompt_inf = f"### ÉTAPE 3 : IMPACT EFFECTIFS ###\nMatch: {row['Match']}\n"
+                        prompt_inf += f"Absents {dom} : {res_d.to_dict('records')}\n"
+                        prompt_inf += f"Absents {ext} : {res_e.to_dict('records')}\n\n"
+                        prompt_inf += "Analyse le poids de ces absences sur la dynamique du match. Doit-on modifier notre indice de confiance ou jeter nos pistes de paris ?"
+                        st.code(prompt_inf, language="text")
 
 # --- 4. COTES ---
 with tab4:
@@ -243,12 +254,20 @@ with tab4:
                 with c2: e_c2 = st.data_editor(pd.DataFrame(c2_data), key=f"c2_{idx}", hide_index=True)
                 with c3: e_c3 = st.data_editor(pd.DataFrame(c3_data), key=f"c3_{idx}", hide_index=True)
                 
-                if st.button(f"💾 Valider Cotes {row['Match']}", key=f"vc_{idx}"):
-                    st.session_state.all_sessions[session_active].at[idx, 'Cotes_1X2'] = e_c1.to_dict('records')
-                    st.session_state.all_sessions[session_active].at[idx, 'Cotes_Goals'] = e_c2.to_dict('records')
-                    st.session_state.all_sessions[session_active].at[idx, 'Cotes_Hdc'] = e_c3.to_dict('records')
-                    st.success("Cotes enregistrées !")
-                    st.rerun()
+                cb1, cb2 = st.columns(2)
+                with cb1:
+                    if st.button(f"💾 Valider Cotes {row['Match']}", key=f"vc_{idx}"):
+                        st.session_state.all_sessions[session_active].at[idx, 'Cotes_1X2'] = e_c1.to_dict('records')
+                        st.session_state.all_sessions[session_active].at[idx, 'Cotes_Goals'] = e_c2.to_dict('records')
+                        st.session_state.all_sessions[session_active].at[idx, 'Cotes_Hdc'] = e_c3.to_dict('records')
+                        st.success("Cotes enregistrées !")
+                        st.rerun()
+                with cb2:
+                    if st.button(f"📋 Prompt IA (Cotes) {row['Match']}", key=f"p_c_{idx}"):
+                        prompt_cotes = f"### ÉTAPE 4 : RECHERCHE DE L'EV+ ###\nMatch: {row['Match']}\n"
+                        prompt_cotes += f"Issues: {e_c1.to_dict('records')}\nButs: {e_c2.to_dict('records')}\nHandicap: {e_c3.to_dict('records')}\n\n"
+                        prompt_cotes += "Avec nos indices de confiance ajustés lors des étapes précédentes, l'une de ces cotes représente-t-elle une réelle opportunité de Value (EV+) ? Dois-je la jouer ou chercher ailleurs ?"
+                        st.code(prompt_cotes, language="text")
 
 # --- 5. VERDICT ---
 with tab5:
