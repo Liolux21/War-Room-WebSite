@@ -132,63 +132,81 @@ with tab2:
             valid_stats = st.session_state.master_df[st.session_state.master_df['GO_Etape2'] == True]
             st.code(f"Stats AIStats pour calcul de Value :\n{valid_stats.to_string()}", language="text")
 
-# ==========================================
-# ONGLET 3 : INFIRMERIE (EFFECTIFS DB)
-# ==========================================
+# --- ONGLET 3 : L'INFIRMERIE (VERSION AVEC MÉMOIRE) ---
 with tab3:
-    st.header("3. Infirmerie & Disponibilité")
-    df_inf = st.session_state.master_df[st.session_state.master_df['GO_Etape2'] == True]
+    st.header(f"3. État des troupes ({session_active})")
+    
+    # 1. BOUTON DE RÉCUPÉRATION (Mémoire)
+    col_mem, col_empty = st.columns([1, 2])
+    with col_mem:
+        if st.button("🔄 Récupérer les blessés (Session Précédente)"):
+            # On définit la session source (si on est sur 'prochain', on regarde 'en cours')
+            source_session = "Week-end en cours" if session_active == "Week-end prochain" else "Archives"
+            
+            if source_session in st.session_state.all_sessions:
+                old_data = st.session_state.all_sessions[source_session]
+                # On extrait tous les blessés "Out" de la session précédente dans un dictionnaire
+                memo_absents = {}
+                for _, r in old_data.iterrows():
+                    if isinstance(r['Absents_Dom'], list):
+                        for p in r['Absents_Dom']:
+                            if p['Durée'] == "Out": memo_absents[p['Joueur']] = p
+                    if isinstance(r['Absents_Ext'], list):
+                        for p in r['Absents_Ext']:
+                            if p['Durée'] == "Out": memo_absents[p['Joueur']] = p
+                
+                st.session_state['memo_absents'] = memo_absents
+                st.success(f"Mémoire chargée : {len(memo_absents)} blessés de longue date mémorisés.")
+            else:
+                st.warning("Aucune donnée source trouvée pour la récupération.")
+
+    # 2. AFFICHAGE DES MATCHS
+    df_inf = st.session_state.all_sessions[session_active][st.session_state.all_sessions[session_active]['GO_Etape2'] == True]
     
     if df_inf.empty:
-        st.info("Validez l'étape 2 pour charger les effectifs.")
+        st.info("Validez l'étape 2 pour accéder aux effectifs.")
     else:
         for idx, row in df_inf.iterrows():
             with st.expander(f"🏥 Effectifs : {row['Match']}", expanded=True):
                 dom, ext = row['Match'].split(' vs ')
-                
-                # Récupération des listes de joueurs depuis MASTER_ANALYSE
                 list_players_dom = sorted(players_db.get(dom, []))
                 list_players_ext = sorted(players_db.get(ext, []))
 
+                # On pré-remplit avec la mémoire si elle existe
+                initial_dom = []
+                initial_ext = []
+                if 'memo_absents' in st.session_state:
+                    initial_dom = [st.session_state['memo_absents'][p] for p in list_players_dom if p in st.session_state['memo_absents']]
+                    initial_ext = [st.session_state['memo_absents'][p] for p in list_players_ext if p in st.session_state['memo_absents']]
+
                 col_dom, col_ext = st.columns(2)
-                
                 with col_dom:
                     st.subheader(f"🏠 {dom}")
                     df_abs_dom = st.data_editor(
-                        pd.DataFrame(columns=['Joueur', 'Type', 'Durée']),
-                        key=f"abs_dom_ed_{idx}", num_rows="dynamic", use_container_width=True,
+                        pd.DataFrame(initial_dom if initial_dom else columns=['Joueur', 'Type', 'Durée']),
+                        key=f"abs_dom_ed_{session_active}_{idx}", num_rows="dynamic", use_container_width=True,
                         column_config={
                             "Joueur": st.column_config.SelectboxColumn("Joueur", options=list_players_dom, required=True),
                             "Type": st.column_config.SelectboxColumn("Type", options=["Blessé", "Malade", "Suspendu"], required=True),
                             "Durée": st.column_config.SelectboxColumn("Durée", options=["Incertain", "Out"], required=True)
                         }
                     )
-                    df_abs_dom.loc[df_abs_dom['Type'] == "Suspendu", "Durée"] = "Out"
-
                 with col_ext:
                     st.subheader(f"🚀 {ext}")
                     df_abs_ext = st.data_editor(
-                        pd.DataFrame(columns=['Joueur', 'Type', 'Durée']),
-                        key=f"abs_ext_ed_{idx}", num_rows="dynamic", use_container_width=True,
+                        pd.DataFrame(initial_ext if initial_ext else columns=['Joueur', 'Type', 'Durée']),
+                        key=f"abs_ext_ed_{session_active}_{idx}", num_rows="dynamic", use_container_width=True,
                         column_config={
                             "Joueur": st.column_config.SelectboxColumn("Joueur", options=list_players_ext, required=True),
                             "Type": st.column_config.SelectboxColumn("Type", options=["Blessé", "Malade", "Suspendu"], required=True),
                             "Durée": st.column_config.SelectboxColumn("Durée", options=["Incertain", "Out"], required=True)
                         }
                     )
-                    df_abs_ext.loc[df_abs_ext['Type'] == "Suspendu", "Durée"] = "Out"
 
-                if st.checkbox(f"Valider impact effectif pour {row['Match']}", key=f"val_inf_{idx}"):
-                    st.session_state.master_df.at[idx, 'GO_Etape3'] = True
-                    st.session_state.master_df.at[idx, 'Absents_Dom'] = df_abs_dom.to_dict('records')
-                    st.session_state.master_df.at[idx, 'Absents_Ext'] = df_abs_ext.to_dict('records')
-
-        if st.button("🤖 Envoyer l'Infirmerie à l'IA"):
-            prompt_inf = "Voici l'état des effectifs. L'asymétrie est-elle confirmée ?\n"
-            for _, r in st.session_state.master_df[st.session_state.master_df['GO_Etape3'] == True].iterrows():
-                prompt_inf += f"\n- {r['Match']} :\n  DOM: {r['Absents_Dom']}\n  EXT: {r['Absents_Ext']}\n"
-            st.code(prompt_inf, language="text")
-
+                if st.checkbox(f"Valider impact effectif : {row['Match']}", key=f"val_inf_{session_active}_{idx}"):
+                    st.session_state.all_sessions[session_active].at[idx, 'GO_Etape3'] = True
+                    st.session_state.all_sessions[session_active].at[idx, 'Absents_Dom'] = df_abs_dom.to_dict('records')
+                    st.session_state.all_sessions[session_active].at[idx, 'Absents_Ext'] = df_abs_ext.to_dict('records')
 # ==========================================
 # ONGLET 4 : COTES SCOOORE & VERDICT FINAL
 # ==========================================
