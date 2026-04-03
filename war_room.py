@@ -28,11 +28,11 @@ REFEREES_DB = {
 }
 ALL_REFEREES = sorted(list(set([ref for sub in REFEREES_DB.values() for ref in sub])))
 
-STATS_COLS = ['H_1x2', 'A_1x2', 'H_AH', 'A_AH', 'H_Over', 'A_Over', 'H_1stGoal', 'A_1stGoal', 'H_BTTS', 'A_BTTS', 'H_RTP', 'A_RTP', 'H_RTA', 'A_RTA', 'H_AttD', 'A_AttD', 'H_Shots', 'A_Shots', 'H_TirC', 'A_TirC', 'H_TirH', 'A_TirH']
-BASE_COLS = ['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1', 'GO_Etape2', 'GO_Etape3', 'Absents_Dom', 'Absents_Ext']
+STATS_COLS_OLD = ['H_1x2', 'A_1x2', 'H_AH', 'A_AH', 'H_Over', 'A_Over', 'H_1stGoal', 'A_1stGoal', 'H_BTTS', 'A_BTTS', 'H_RTP', 'A_RTP', 'H_RTA', 'A_RTA', 'H_AttD', 'A_AttD', 'H_Shots', 'A_Shots', 'H_TirC', 'A_TirC', 'H_TirH', 'A_TirH']
+BASE_COLS = ['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1', 'GO_Etape2', 'GO_Etape3']
 VERDICT_COLS = ['Conf_AIStats', 'Conf_FotMob', 'Type_Pari', 'Palier_Snowball', 'Meteo', 'Arbitre', 'Pari_Final']
-COTES_COLS = ['Cotes_1X2', 'Cotes_Goals', 'Cotes_Hdc']
-ALL_COLS = BASE_COLS + STATS_COLS + VERDICT_COLS + COTES_COLS
+JSON_COLS = ['Stats_Dict', 'Absents_Dom', 'Absents_Ext', 'Cotes_1X2', 'Cotes_Goals', 'Cotes_Hdc']
+ALL_COLS = BASE_COLS + STATS_COLS_OLD + VERDICT_COLS + JSON_COLS
 
 @st.cache_data
 def load_players_db():
@@ -77,7 +77,7 @@ def run_super_scanner(session_name):
                     dom, ext = m['homeTeam']['name'], m['awayTeam']['name']
                     if league in ['DED', 'PPL'] and not any(kw in dom or kw in ext for kw in BIG_SIX_KEYWORDS): continue
                     row = {c: "" for c in ALL_COLS}
-                    row.update({'Date': m['utcDate'][:10], 'Heure': m['utcDate'][11:16], 'Match': f"{dom} vs {ext}", 'Ligue': league, 'Favori': 'N/A', 'Confiance_Initiale': 'N/A', 'GO_Etape1': False, 'GO_Etape2': False, 'GO_Etape3': False, 'Type_Pari': 'Value Bet', 'Palier_Snowball': 'N/A', 'Absents_Dom': [], 'Absents_Ext': [], 'Cotes_1X2': [], 'Cotes_Goals': [], 'Cotes_Hdc': []})
+                    row.update({'Date': m['utcDate'][:10], 'Heure': m['utcDate'][11:16], 'Match': f"{dom} vs {ext}", 'Ligue': league, 'Favori': 'N/A', 'Confiance_Initiale': 'N/A', 'GO_Etape1': False, 'GO_Etape2': False, 'GO_Etape3': False, 'Type_Pari': 'Value Bet', 'Palier_Snowball': 'N/A', 'Stats_Dict': [], 'Absents_Dom': [], 'Absents_Ext': [], 'Cotes_1X2': [], 'Cotes_Goals': [], 'Cotes_Hdc': []})
                     matchs_list.append(row)
             time.sleep(1.2)
         except: continue
@@ -142,27 +142,42 @@ with tab1:
         edited = st.data_editor(df_radar[['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1']], use_container_width=True, hide_index=True, height=600)
         if st.button("💾 Sauvegarder Radar"): st.session_state.all_sessions[session_active].update(edited); st.success("Enregistré !")
 
-# --- 2. STATS ---
+# --- 2. STATS (REMASTERISÉ POUR LE JSON) ---
 with tab2:
     cur_df = st.session_state.all_sessions[session_active]
     matches = cur_df[cur_df['GO_Etape1'] == True] if not cur_df.empty and 'GO_Etape1' in cur_df.columns else pd.DataFrame()
     if matches.empty: st.info("Cochez GO au Radar.")
     else:
+        # Initialisation sécurisée de la colonne JSON si elle n'existe pas
+        if 'Stats_Dict' not in st.session_state.all_sessions[session_active].columns:
+            st.session_state.all_sessions[session_active]['Stats_Dict'] = None
+        st.session_state.all_sessions[session_active]['Stats_Dict'] = st.session_state.all_sessions[session_active]['Stats_Dict'].astype(object)
+
         for idx, row in matches.iterrows():
             with st.expander(f"⚔️ {row['Match']}", expanded=True):
                 dom, ext = row['Match'].split(' vs ')
-                labels = ["1X2 (%)", "AH (%)", "Over (%)", "1stG (%)", "BTTS (%)", "---", "RTP", "RTA", "Att.D", "Tirs", "Cadrés", "Hors C."]
-                df_d = pd.DataFrame({"Indicateur": labels, dom: [row['H_1x2'], row['H_AH'], row['H_Over'], row['H_1stGoal'], row['H_BTTS'], "", row['H_RTP'], row['H_RTA'], row['H_AttD'], row['H_Shots'], row['H_TirC'], row['H_TirH']], ext: [row['A_1x2'], row['A_AH'], row['A_Over'], row['A_1stGoal'], row['A_BTTS'], "", row['A_RTP'], row['A_RTA'], row['A_AttD'], row['A_Shots'], row['A_TirC'], row['A_TirH']]})
+                
+                # Chargement depuis le JSON (Nouvelle méthode robuste)
+                saved_stats = row.get('Stats_Dict')
+                
+                if isinstance(saved_stats, list) and len(saved_stats) > 0:
+                    df_d = pd.DataFrame(saved_stats)
+                else:
+                    # Rétrocompatibilité : On essaie de lire les anciennes colonnes si elles existent
+                    def sv(v): return "" if pd.isna(v) else v
+                    labels = ["1X2 (%)", "AH (%)", "Over (%)", "1stG (%)", "BTTS (%)", "---", "RTP", "RTA", "Att.D", "Tirs", "Cadrés", "Hors C."]
+                    h_vals = [sv(row.get('H_1x2')), sv(row.get('H_AH')), sv(row.get('H_Over')), sv(row.get('H_1stGoal')), sv(row.get('H_BTTS')), "", sv(row.get('H_RTP')), sv(row.get('H_RTA')), sv(row.get('H_AttD')), sv(row.get('H_Shots')), sv(row.get('H_TirC')), sv(row.get('H_TirH'))]
+                    a_vals = [sv(row.get('A_1x2')), sv(row.get('A_AH')), sv(row.get('A_Over')), sv(row.get('A_1stGoal')), sv(row.get('A_BTTS')), "", sv(row.get('A_RTP')), sv(row.get('A_RTA')), sv(row.get('A_AttD')), sv(row.get('A_Shots')), sv(row.get('A_TirC')), sv(row.get('A_TirH'))]
+                    df_d = pd.DataFrame({"Indicateur": labels, dom: h_vals, ext: a_vals})
+                
                 edited_d = st.data_editor(df_d, key=f"d_{idx}", use_container_width=True, height=500)
                 
                 if st.button(f"💾 Valider Stats {row['Match']}", key=f"s_{idx}"):
-                    suffixes = ['_1x2', '_AH', '_Over', '_1stGoal', '_BTTS', None, '_RTP', '_RTA', '_AttD', '_Shots', '_TirC', '_TirH']
-                    for i, suf in enumerate(suffixes):
-                        if suf is not None:
-                            st.session_state.all_sessions[session_active].at[idx, 'H'+suf] = edited_d.iloc[i, 1]
-                            st.session_state.all_sessions[session_active].at[idx, 'A'+suf] = edited_d.iloc[i, 2]
+                    # On enregistre le tableau entier en bloc, 100% compatible JSON
+                    st.session_state.all_sessions[session_active].at[idx, 'Stats_Dict'] = edited_d.to_dict('records')
                     st.session_state.all_sessions[session_active].at[idx, 'GO_Etape2'] = True
                     st.success("Stats enregistrées !")
+                    st.rerun() # Rafraîchissement forcé pour sécuriser la donnée
 
 # --- 3. INFIRMERIE ---
 with tab3:
@@ -177,10 +192,8 @@ with tab3:
     df_inf = cur_inf[cur_inf['GO_Etape2'] == True] if not cur_inf.empty and 'GO_Etape2' in cur_inf.columns else pd.DataFrame()
     if df_inf.empty: st.info("Validez l'étape 2.")
     else:
-        if 'Absents_Dom' not in st.session_state.all_sessions[session_active].columns:
-            st.session_state.all_sessions[session_active]['Absents_Dom'] = None
-        if 'Absents_Ext' not in st.session_state.all_sessions[session_active].columns:
-            st.session_state.all_sessions[session_active]['Absents_Ext'] = None
+        if 'Absents_Dom' not in st.session_state.all_sessions[session_active].columns: st.session_state.all_sessions[session_active]['Absents_Dom'] = None
+        if 'Absents_Ext' not in st.session_state.all_sessions[session_active].columns: st.session_state.all_sessions[session_active]['Absents_Ext'] = None
             
         st.session_state.all_sessions[session_active]['Absents_Dom'] = st.session_state.all_sessions[session_active]['Absents_Dom'].astype(object)
         st.session_state.all_sessions[session_active]['Absents_Ext'] = st.session_state.all_sessions[session_active]['Absents_Ext'].astype(object)
@@ -190,10 +203,8 @@ with tab3:
                 dom, ext = row['Match'].split(' vs ')
                 l_dom, l_ext = get_roster(dom, players_db), get_roster(ext, players_db)
                 
-                # CORRECTION ICI: plus de pd.notna
                 saved_dom = row['Absents_Dom'] if isinstance(row['Absents_Dom'], list) and len(row['Absents_Dom']) > 0 else []
                 saved_ext = row['Absents_Ext'] if isinstance(row['Absents_Ext'], list) and len(row['Absents_Ext']) > 0 else []
-                
                 if not saved_dom: saved_dom = [st.session_state['memo'][p] for p in l_dom if 'memo' in st.session_state and p in st.session_state['memo']]
                 if not saved_ext: saved_ext = [st.session_state['memo'][p] for p in l_ext if 'memo' in st.session_state and p in st.session_state['memo']]
                 
@@ -206,6 +217,7 @@ with tab3:
                     st.session_state.all_sessions[session_active].at[idx, 'Absents_Dom'] = res_d.to_dict('records')
                     st.session_state.all_sessions[session_active].at[idx, 'Absents_Ext'] = res_e.to_dict('records')
                     st.success("Infirmerie enregistrée !")
+                    st.rerun()
 
 # --- 4. COTES ---
 with tab4:
@@ -214,16 +226,14 @@ with tab4:
     df_cotes = cur_cotes[cur_cotes['GO_Etape3'] == True] if not cur_cotes.empty and 'GO_Etape3' in cur_cotes.columns else pd.DataFrame()
     if df_cotes.empty: st.info("Validez l'étape 3.")
     else:
-        for c in COTES_COLS:
-            if c not in st.session_state.all_sessions[session_active].columns:
-                st.session_state.all_sessions[session_active][c] = None
+        for c in ['Cotes_1X2', 'Cotes_Goals', 'Cotes_Hdc']:
+            if c not in st.session_state.all_sessions[session_active].columns: st.session_state.all_sessions[session_active][c] = None
             st.session_state.all_sessions[session_active][c] = st.session_state.all_sessions[session_active][c].astype(object)
 
         for idx, row in df_cotes.iterrows():
             with st.expander(f"💰 {row['Match']}", expanded=True):
                 dom, ext = row['Match'].split(' vs ')
                 
-                # CORRECTION ICI: plus de pd.notna
                 c1_data = row['Cotes_1X2'] if isinstance(row['Cotes_1X2'], list) and len(row['Cotes_1X2']) > 0 else [{"Marché": m, "Cote": 1.0} for m in ["1","X","2","DNB 1","DNB 2","1X","X2"]]
                 c2_data = row['Cotes_Goals'] if isinstance(row['Cotes_Goals'], list) and len(row['Cotes_Goals']) > 0 else [{"Marché": m, "Cote": 1.0} for m in ["BTTS Oui","BTTS Non","Over 1.5","Over 2.5","Over 3.5","Under 1.5","Under 2.5","Under 3.5"]]
                 c3_data = row['Cotes_Hdc'] if isinstance(row['Cotes_Hdc'], list) and len(row['Cotes_Hdc']) > 0 else [{"Hdc": h, "Cote Dom": 1.0, "Cote Ext": 1.0} for h in ["-1.5","-0.5","0.5","1.5"]]
@@ -238,6 +248,7 @@ with tab4:
                     st.session_state.all_sessions[session_active].at[idx, 'Cotes_Goals'] = e_c2.to_dict('records')
                     st.session_state.all_sessions[session_active].at[idx, 'Cotes_Hdc'] = e_c3.to_dict('records')
                     st.success("Cotes enregistrées !")
+                    st.rerun()
 
 # --- 5. VERDICT ---
 with tab5:
