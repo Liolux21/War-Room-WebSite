@@ -31,7 +31,8 @@ ALL_REFEREES = sorted(list(set([ref for sub in REFEREES_DB.values() for ref in s
 STATS_COLS = ['H_1x2', 'A_1x2', 'H_AH', 'A_AH', 'H_Over', 'A_Over', 'H_1stGoal', 'A_1stGoal', 'H_BTTS', 'A_BTTS', 'H_RTP', 'A_RTP', 'H_RTA', 'A_RTA', 'H_AttD', 'A_AttD', 'H_Shots', 'A_Shots', 'H_TirC', 'A_TirC', 'H_TirH', 'A_TirH']
 BASE_COLS = ['Date', 'Heure', 'Match', 'Ligue', 'Favori', 'Confiance_Initiale', 'GO_Etape1', 'GO_Etape2', 'GO_Etape3', 'Absents_Dom', 'Absents_Ext']
 VERDICT_COLS = ['Conf_AIStats', 'Conf_FotMob', 'Type_Pari', 'Palier_Snowball', 'Meteo', 'Arbitre', 'Pari_Final']
-ALL_COLS = BASE_COLS + STATS_COLS + VERDICT_COLS
+COTES_COLS = ['Cotes_1X2', 'Cotes_Goals', 'Cotes_Hdc'] # NOUVEAU: Colonnes pour stocker les cotes
+ALL_COLS = BASE_COLS + STATS_COLS + VERDICT_COLS + COTES_COLS
 
 @st.cache_data
 def load_players_db():
@@ -45,15 +46,12 @@ def load_players_db():
 
 players_db = load_players_db()
 
-# CORRECTEUR INTELLIGENT DE NOMS D'ÉQUIPES (Pour Monaco, etc.)
 def get_roster(team_name, db):
-    if team_name in db:
-        return sorted(db[team_name])
+    if team_name in db: return sorted(db[team_name])
     name_clean = team_name.lower().replace('fc', '').replace('as ', '').replace('cf', '').strip()
     for db_team, players in db.items():
         db_clean = db_team.lower().replace('fc', '').replace('as ', '').replace('cf', '').strip()
-        if name_clean in db_clean or db_clean in name_clean:
-            return sorted(players)
+        if name_clean in db_clean or db_clean in name_clean: return sorted(players)
     return []
 
 # --- LOGIQUE DATES & SCAN ---
@@ -79,7 +77,7 @@ def run_super_scanner(session_name):
                     dom, ext = m['homeTeam']['name'], m['awayTeam']['name']
                     if league in ['DED', 'PPL'] and not any(kw in dom or kw in ext for kw in BIG_SIX_KEYWORDS): continue
                     row = {c: "" for c in ALL_COLS}
-                    row.update({'Date': m['utcDate'][:10], 'Heure': m['utcDate'][11:16], 'Match': f"{dom} vs {ext}", 'Ligue': league, 'Favori': 'N/A', 'Confiance_Initiale': 'N/A', 'GO_Etape1': False, 'GO_Etape2': False, 'GO_Etape3': False, 'Type_Pari': 'Value Bet', 'Palier_Snowball': 'N/A'})
+                    row.update({'Date': m['utcDate'][:10], 'Heure': m['utcDate'][11:16], 'Match': f"{dom} vs {ext}", 'Ligue': league, 'Favori': 'N/A', 'Confiance_Initiale': 'N/A', 'GO_Etape1': False, 'GO_Etape2': False, 'GO_Etape3': False, 'Type_Pari': 'Value Bet', 'Palier_Snowball': 'N/A', 'Absents_Dom': [], 'Absents_Ext': [], 'Cotes_1X2': [], 'Cotes_Goals': [], 'Cotes_Hdc': []})
                     matchs_list.append(row)
             time.sleep(1.2)
         except: continue
@@ -107,17 +105,16 @@ with st.sidebar:
 
     st.divider()
     st.subheader("💾 Backup & Synchro")
-    # Export
     export_dict = {k: v.to_dict(orient="records") for k, v in st.session_state.all_sessions.items()}
     st.download_button("⬇️ Exporter ma War Room", data=json.dumps(export_dict), file_name=f"war_room_save_{datetime.now().strftime('%Y%m%d')}.json", mime="application/json", use_container_width=True)
-    # Import
+    
     uploaded_file = st.file_uploader("⬆️ Importer une sauvegarde", type="json")
     if uploaded_file is not None:
         if st.button("Restaurer les données", use_container_width=True):
             imported_data = json.load(uploaded_file)
             for k, v in imported_data.items():
                 st.session_state.all_sessions[k] = pd.DataFrame(v)
-            st.success("✅ War Room restaurée !")
+            st.success("✅ War Room restaurée Intégralement !")
             st.rerun()
 
 # ==========================================
@@ -153,8 +150,16 @@ with tab2:
                 labels = ["1X2 (%)", "AH (%)", "Over (%)", "1stG (%)", "BTTS (%)", "---", "RTP", "RTA", "Att.D", "Tirs", "Cadrés", "Hors C."]
                 df_d = pd.DataFrame({"Indicateur": labels, dom: [row['H_1x2'], row['H_AH'], row['H_Over'], row['H_1stGoal'], row['H_BTTS'], "", row['H_RTP'], row['H_RTA'], row['H_AttD'], row['H_Shots'], row['H_TirC'], row['H_TirH']], ext: [row['A_1x2'], row['A_AH'], row['A_Over'], row['A_1stGoal'], row['A_BTTS'], "", row['A_RTP'], row['A_RTA'], row['A_AttD'], row['A_Shots'], row['A_TirC'], row['A_TirH']]})
                 edited_d = st.data_editor(df_d, key=f"d_{idx}", use_container_width=True, height=500)
+                
                 if st.button(f"💾 Valider Stats {row['Match']}", key=f"s_{idx}"):
-                    st.session_state.all_sessions[session_active].at[idx, 'GO_Etape2'] = True; st.rerun()
+                    # CORRECTION: On sauvegarde réellement toutes les stats dans la base de données !
+                    suffixes = ['_1x2', '_AH', '_Over', '_1stGoal', '_BTTS', None, '_RTP', '_RTA', '_AttD', '_Shots', '_TirC', '_TirH']
+                    for i, suf in enumerate(suffixes):
+                        if suf is not None:
+                            st.session_state.all_sessions[session_active].at[idx, 'H'+suf] = edited_d.iloc[i, 1]
+                            st.session_state.all_sessions[session_active].at[idx, 'A'+suf] = edited_d.iloc[i, 2]
+                    st.session_state.all_sessions[session_active].at[idx, 'GO_Etape2'] = True
+                    st.success("Stats enregistrées !")
 
 # --- 3. INFIRMERIE ---
 with tab3:
@@ -169,7 +174,6 @@ with tab3:
     df_inf = cur_inf[cur_inf['GO_Etape2'] == True] if not cur_inf.empty and 'GO_Etape2' in cur_inf.columns else pd.DataFrame()
     if df_inf.empty: st.info("Validez l'étape 2.")
     else:
-        # SÉCURITÉ PANDAS
         st.session_state.all_sessions[session_active]['Absents_Dom'] = st.session_state.all_sessions[session_active]['Absents_Dom'].astype(object)
         st.session_state.all_sessions[session_active]['Absents_Ext'] = st.session_state.all_sessions[session_active]['Absents_Ext'].astype(object)
 
@@ -177,15 +181,23 @@ with tab3:
             with st.expander(f"🏥 {row['Match']}", expanded=True):
                 dom, ext = row['Match'].split(' vs ')
                 l_dom, l_ext = get_roster(dom, players_db), get_roster(ext, players_db)
-                i_dom = [st.session_state['memo'][p] for p in l_dom if 'memo' in st.session_state and p in st.session_state['memo']]
-                i_ext = [st.session_state['memo'][p] for p in l_ext if 'memo' in st.session_state and p in st.session_state['memo']]
+                
+                # CORRECTION: On vérifie s'il y a des blessés DEJA SAUVEGARDES dans la ligne avant d'utiliser la mémoire vide
+                saved_dom = row['Absents_Dom'] if isinstance(row['Absents_Dom'], list) and len(row['Absents_Dom']) > 0 else []
+                saved_ext = row['Absents_Ext'] if isinstance(row['Absents_Ext'], list) and len(row['Absents_Ext']) > 0 else []
+                
+                if not saved_dom: saved_dom = [st.session_state['memo'][p] for p in l_dom if 'memo' in st.session_state and p in st.session_state['memo']]
+                if not saved_ext: saved_ext = [st.session_state['memo'][p] for p in l_ext if 'memo' in st.session_state and p in st.session_state['memo']]
+                
                 c_d, c_e = st.columns(2)
-                with c_d: res_d = st.data_editor(pd.DataFrame(i_dom if i_dom else [], columns=['Joueur', 'Type', 'Durée']), key=f"ad_{idx}", num_rows="dynamic", use_container_width=True, column_config={"Joueur": st.column_config.SelectboxColumn("Joueur", options=l_dom), "Type": st.column_config.SelectboxColumn("Type", options=["Blessé", "Malade", "Suspendu"]), "Durée": st.column_config.SelectboxColumn("Durée", options=["Incertain", "Out"])})
-                with c_e: res_e = st.data_editor(pd.DataFrame(i_ext if i_ext else [], columns=['Joueur', 'Type', 'Durée']), key=f"ae_{idx}", num_rows="dynamic", use_container_width=True, column_config={"Joueur": st.column_config.SelectboxColumn("Joueur", options=l_ext), "Type": st.column_config.SelectboxColumn("Type", options=["Blessé", "Malade", "Suspendu"]), "Durée": st.column_config.SelectboxColumn("Durée", options=["Incertain", "Out"])})
-                if st.checkbox(f"Valider Infirmerie {row['Match']}", key=f"v_{idx}"):
+                with c_d: res_d = st.data_editor(pd.DataFrame(saved_dom if saved_dom else [], columns=['Joueur', 'Type', 'Durée']), key=f"ad_{idx}", num_rows="dynamic", use_container_width=True, column_config={"Joueur": st.column_config.SelectboxColumn("Joueur", options=l_dom), "Type": st.column_config.SelectboxColumn("Type", options=["Blessé", "Malade", "Suspendu"]), "Durée": st.column_config.SelectboxColumn("Durée", options=["Incertain", "Out"])})
+                with c_e: res_e = st.data_editor(pd.DataFrame(saved_ext if saved_ext else [], columns=['Joueur', 'Type', 'Durée']), key=f"ae_{idx}", num_rows="dynamic", use_container_width=True, column_config={"Joueur": st.column_config.SelectboxColumn("Joueur", options=l_ext), "Type": st.column_config.SelectboxColumn("Type", options=["Blessé", "Malade", "Suspendu"]), "Durée": st.column_config.SelectboxColumn("Durée", options=["Incertain", "Out"])})
+                
+                if st.button(f"💾 Valider Infirmerie {row['Match']}", key=f"v_{idx}"):
                     st.session_state.all_sessions[session_active].at[idx, 'GO_Etape3'] = True
                     st.session_state.all_sessions[session_active].at[idx, 'Absents_Dom'] = res_d.to_dict('records')
                     st.session_state.all_sessions[session_active].at[idx, 'Absents_Ext'] = res_e.to_dict('records')
+                    st.success("Infirmerie enregistrée !")
 
 # --- 4. COTES ---
 with tab4:
@@ -194,13 +206,29 @@ with tab4:
     df_cotes = cur_cotes[cur_cotes['GO_Etape3'] == True] if not cur_cotes.empty and 'GO_Etape3' in cur_cotes.columns else pd.DataFrame()
     if df_cotes.empty: st.info("Validez l'étape 3.")
     else:
+        # SÉCURITÉ PANDAS pour les listes
+        for c in ['Cotes_1X2', 'Cotes_Goals', 'Cotes_Hdc']:
+            st.session_state.all_sessions[session_active][c] = st.session_state.all_sessions[session_active][c].astype(object)
+
         for idx, row in df_cotes.iterrows():
             with st.expander(f"💰 {row['Match']}", expanded=True):
                 dom, ext = row['Match'].split(' vs ')
+                
+                # CORRECTION: Récupération des cotes sauvegardées ou création de la matrice par défaut
+                c1_data = row['Cotes_1X2'] if isinstance(row['Cotes_1X2'], list) and len(row['Cotes_1X2']) > 0 else [{"Marché": m, "Cote": 1.0} for m in ["1","X","2","DNB 1","DNB 2","1X","X2"]]
+                c2_data = row['Cotes_Goals'] if isinstance(row['Cotes_Goals'], list) and len(row['Cotes_Goals']) > 0 else [{"Marché": m, "Cote": 1.0} for m in ["BTTS Oui","BTTS Non","Over 1.5","Over 2.5","Over 3.5","Under 1.5","Under 2.5","Under 3.5"]]
+                c3_data = row['Cotes_Hdc'] if isinstance(row['Cotes_Hdc'], list) and len(row['Cotes_Hdc']) > 0 else [{"Hdc": h, "Cote Dom": 1.0, "Cote Ext": 1.0} for h in ["-1.5","-0.5","0.5","1.5"]]
+
                 c1, c2, c3 = st.columns(3)
-                with c1: st.data_editor(pd.DataFrame({"Marché": ["1","X","2","DNB 1","DNB 2","1X","X2"], "Cote": [1.0]*7}), key=f"c1_{idx}", hide_index=True)
-                with c2: st.data_editor(pd.DataFrame({"Marché": ["BTTS Oui","BTTS Non","Over 1.5","Over 2.5","Over 3.5","Under 1.5","Under 2.5","Under 3.5"], "Cote": [1.0]*8}), key=f"c2_{idx}", hide_index=True)
-                with c3: st.data_editor(pd.DataFrame({"Hdc": ["-1.5","-0.5","0.5","1.5"], "Cote Dom": [1.0]*4, "Cote Ext": [1.0]*4}), key=f"c3_{idx}", hide_index=True)
+                with c1: e_c1 = st.data_editor(pd.DataFrame(c1_data), key=f"c1_{idx}", hide_index=True)
+                with c2: e_c2 = st.data_editor(pd.DataFrame(c2_data), key=f"c2_{idx}", hide_index=True)
+                with c3: e_c3 = st.data_editor(pd.DataFrame(c3_data), key=f"c3_{idx}", hide_index=True)
+                
+                if st.button(f"💾 Valider Cotes {row['Match']}", key=f"vc_{idx}"):
+                    st.session_state.all_sessions[session_active].at[idx, 'Cotes_1X2'] = e_c1.to_dict('records')
+                    st.session_state.all_sessions[session_active].at[idx, 'Cotes_Goals'] = e_c2.to_dict('records')
+                    st.session_state.all_sessions[session_active].at[idx, 'Cotes_Hdc'] = e_c3.to_dict('records')
+                    st.success("Cotes enregistrées !")
 
 # --- 5. VERDICT ---
 with tab5:
