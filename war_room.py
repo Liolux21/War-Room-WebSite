@@ -176,34 +176,44 @@ with tab4:
 with tab5:
     st.header(f"Verdict Final : {session_active}")
     df_v = st.session_state.all_sessions[session_active]
-    # On affiche tout ce qui est coché GO au Radar
-    df_final = df_v[df_v['GO_Etape1'] == True] if not df_v.empty else pd.DataFrame()
     
-    if df_final.empty: st.info("Cochez des matchs au Radar.")
-    else:
-        # Configuration des colonnes dynamiques
-        edited_v = st.data_editor(
-            df_final[['Date', 'Heure', 'Match', 'Confiance_Initiale', 'Conf_AIStats', 'Conf_FotMob', 'Type_Pari', 'Palier_Snowball', 'Meteo', 'Arbitre', 'Pari_Final']],
-            column_config={
-                "Type_Pari": st.column_config.SelectboxColumn("Type", options=["Value Bet", "Snowball"], required=True),
-                "Palier_Snowball": st.column_config.SelectboxColumn("Palier", options=["N/A", "1", "2", "3", "4", "5", "Bonus"]),
-                "Meteo": st.column_config.SelectboxColumn("Météo", options=["Beau temps", "Pluie", "Vent fort", "Froid intense", "Neige"]),
-                "Arbitre": st.column_config.SelectboxColumn("Arbitre", options=ALL_REFEREES),
-                "Pari_Final": st.column_config.TextColumn("Pari Final", placeholder="Ex: Victoire Dom + Over 1.5")
-            },
-            use_container_width=True, hide_index=True, height=600, key=f"ved_{session_active}"
-        )
-        if st.button("💾 Sauvegarder Verdict"):
-            st.session_state.all_sessions[session_active].update(edited_v)
-            st.success("Données sauvegardées !")
+    # Sécurité : On vérifie que le DataFrame n'est pas vide et contient bien GO_Etape1
+    if not df_v.empty and 'GO_Etape1' in df_v.columns:
+        df_final = df_v[df_v['GO_Etape1'] == True]
+        
+        if df_final.empty: 
+            st.info("Cochez des matchs au Radar pour les voir apparaître ici.")
+        else:
+            # Correction de la configuration des colonnes (Retrait du placeholder problématique)
+            edited_v = st.data_editor(
+                df_final[['Date', 'Heure', 'Match', 'Confiance_Initiale', 'Conf_AIStats', 'Conf_FotMob', 'Type_Pari', 'Palier_Snowball', 'Meteo', 'Arbitre', 'Pari_Final']],
+                column_config={
+                    "Type_Pari": st.column_config.SelectboxColumn("Type", options=["Value Bet", "Snowball"], required=True),
+                    "Palier_Snowball": st.column_config.SelectboxColumn("Palier", options=["N/A", "1", "2", "3", "4", "5", "Bonus"]),
+                    "Meteo": st.column_config.SelectboxColumn("Météo", options=["Beau temps", "Pluie", "Vent fort", "Froid intense", "Neige"]),
+                    "Arbitre": st.column_config.SelectboxColumn("Arbitre", options=ALL_REFEREES),
+                    "Pari_Final": st.column_config.TextColumn("Pari Final") # Simplifié ici
+                },
+                use_container_width=True, 
+                hide_index=True, 
+                height=600, 
+                key=f"ved_final_{session_active}"
+            )
+            
+            if st.button("💾 Sauvegarder Verdict", key="save_verdict_btn"):
+                st.session_state.all_sessions[session_active].update(edited_v)
+                st.success("Données sauvegardées avec succès !")
 
-        st.divider()
-        for idx, row in df_final.iterrows():
-            if st.button(f"📰 Générer Prompt : {row['Match']}", key=f"pb_{idx}"):
-                p = f"### ANALYSE SNIPER : {row['Match']} ###\n"
-                p += f"Confiances : Init({row['Confiance_Initiale']}) | AI({row['Conf_AIStats']}) | FotMob({row['Conf_FotMob']})\n"
-                p += f"Stratégie : {row['Type_Pari']} (Palier: {row['Palier_Snowball']})\n"
-                p += f"Contexte : Météo {row['Meteo']} | Arbitre: {row['Arbitre']}\n"
-                p += f"Absents : {row['Absents_Dom']} / {row['Absents_Ext']}\n"
-                p += "Donne-moi ton verdict final basé sur la revue de presse locale et les enjeux du club."
-                st.code(p)
+            st.divider()
+            # Génération des prompts pour les matchs sélectionnés
+            for idx, row in df_final.iterrows():
+                if st.button(f"📰 Générer Prompt : {row['Match']}", key=f"pb_final_{idx}"):
+                    p = f"### ANALYSE SNIPER : {row['Match']} ###\n"
+                    p += f"Confiances : Init({row['Confiance_Initiale']}) | AI({row['Conf_AIStats']}) | FotMob({row['Conf_FotMob']})\n"
+                    p += f"Stratégie : {row['Type_Pari']} (Palier: {row['Palier_Snowball']})\n"
+                    p += f"Contexte : Météo {row['Meteo']} | Arbitre: {row['Arbitre']}\n"
+                    p += f"Absents : {row['Absents_Dom']} / {row['Absents_Ext']}\n"
+                    p += "Donne-moi ton verdict final basé sur la revue de presse locale et les enjeux du club."
+                    st.code(p)
+    else:
+        st.info("Lancez un scan et sélectionnez des matchs au Radar.")
