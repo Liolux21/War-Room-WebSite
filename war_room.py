@@ -182,20 +182,31 @@ with tab3:
                 col_dom, col_ext = st.columns(2)
                 with col_dom:
                     st.subheader(f"🏠 {dom}")
+                    # Correction ici : On définit les colonnes AVANT l'expression conditionnelle
+                    default_cols = ['Joueur', 'Type', 'Durée']
+                    data_dom = initial_dom if initial_dom else pd.DataFrame(columns=default_cols)
+                    
                     df_abs_dom = st.data_editor(
-                        pd.DataFrame(initial_dom if initial_dom else columns=['Joueur', 'Type', 'Durée']),
-                        key=f"abs_dom_ed_{session_active}_{idx}", num_rows="dynamic", use_container_width=True,
+                        data_dom,
+                        key=f"abs_dom_ed_{session_active}_{idx}", 
+                        num_rows="dynamic", 
+                        use_container_width=True,
                         column_config={
                             "Joueur": st.column_config.SelectboxColumn("Joueur", options=list_players_dom, required=True),
                             "Type": st.column_config.SelectboxColumn("Type", options=["Blessé", "Malade", "Suspendu"], required=True),
                             "Durée": st.column_config.SelectboxColumn("Durée", options=["Incertain", "Out"], required=True)
                         }
                     )
+
                 with col_ext:
                     st.subheader(f"🚀 {ext}")
+                    data_ext = initial_ext if initial_ext else pd.DataFrame(columns=default_cols)
+                    
                     df_abs_ext = st.data_editor(
-                        pd.DataFrame(initial_ext if initial_ext else columns=['Joueur', 'Type', 'Durée']),
-                        key=f"abs_ext_ed_{session_active}_{idx}", num_rows="dynamic", use_container_width=True,
+                        data_ext,
+                        key=f"abs_ext_ed_{session_active}_{idx}", 
+                        num_rows="dynamic", 
+                        use_container_width=True,
                         column_config={
                             "Joueur": st.column_config.SelectboxColumn("Joueur", options=list_players_ext, required=True),
                             "Type": st.column_config.SelectboxColumn("Type", options=["Blessé", "Malade", "Suspendu"], required=True),
@@ -207,6 +218,7 @@ with tab3:
                     st.session_state.all_sessions[session_active].at[idx, 'GO_Etape3'] = True
                     st.session_state.all_sessions[session_active].at[idx, 'Absents_Dom'] = df_abs_dom.to_dict('records')
                     st.session_state.all_sessions[session_active].at[idx, 'Absents_Ext'] = df_abs_ext.to_dict('records')
+                    
 # ==========================================
 # ONGLET 4 : COTES SCOOORE & VERDICT FINAL
 # ==========================================
