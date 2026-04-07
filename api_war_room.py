@@ -35,24 +35,25 @@ def extraire_dynamique_api(team_id, team_name):
         # Boucle sur les 5 derniers combats
         for match in derniers_matchs[:5]:
             
-            # On vérifie que la liste des statistiques existe bien pour ce match
             if "statistics" in match and isinstance(match["statistics"], list):
                 match_a_des_stats = False
                 
                 # On fouille dans la liste pour trouver nos variables
                 for stat in match["statistics"]:
+                    
+                    # 🛑 LE FILTRE VITAL : On ignore les stats de l'adversaire
+                    if stat.get("participant_id") != team_id:
+                        continue
+                        
                     try:
                         val = float(stat.get("data", {}).get("value", 0))
                     except ValueError:
                         val = 0
                         
                     type_id = stat.get("type_id")
-                    
-                    # On récupère le texte si l'API l'a fourni
                     stat_info = stat.get("type", {})
                     stat_code = stat_info.get("code", "").lower()
                     
-                    # Le filtre d'extraction (Croisement ID ou Nom de code)
                     if type_id == 84 or "corner" in stat_code:
                         stats["Corners"] += val
                         match_a_des_stats = True
@@ -61,11 +62,8 @@ def extraire_dynamique_api(team_id, team_name):
                         match_a_des_stats = True
                     elif type_id == 45 or "possession" in stat_code:
                         stats["Poss"] += val
-                    # Les xG varient selon les abonnements, on ratisse large (97, 104, etc.)
-                    elif type_id in [97, 104, 118] or "expected" in stat_code or "xg" in stat_code:
-                        stats["xG"] += val
+                        match_a_des_stats = True
                 
-                # Si on a trouvé au moins une stat pertinente, le match est validé pour la moyenne
                 if match_a_des_stats:
                     matchs_valides += 1
 
