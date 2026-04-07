@@ -14,8 +14,8 @@ def extraire_donnees_api(team_id, team_name):
     print(f"[*] INFILTRATION DU SERVEUR POUR : {team_name}")
     print(f"[*] =======================================")
     
-    # ÉTAPE 1 : Dynamique récente et ID du prochain combat
-    url_team = f"https://api.sportmonks.com/v3/football/teams/{team_id}?include=latest.statistics.type,latest.xgfixture.type,upcoming"
+    # CORRECTION VITALE : Utilisation du point-virgule (;) pour séparer les modules dans l'API V3
+    url_team = f"https://api.sportmonks.com/v3/football/teams/{team_id}?include=latest.statistics;latest.xgfixture;upcoming"
     headers = {"Authorization": API_TOKEN}
 
     try:
@@ -37,7 +37,7 @@ def extraire_donnees_api(team_id, team_name):
         for match in derniers_matchs[:5]:
             match_a_des_stats = False
             
-            # Stats Classiques
+            # Stats Classiques (Corners 84, Tirs Cadrés 86, Possession 45)
             if "statistics" in match and isinstance(match["statistics"], list):
                 for stat in match["statistics"]:
                     if stat.get("participant_id") != team_id:
@@ -46,26 +46,25 @@ def extraire_donnees_api(team_id, team_name):
                         val = float(stat.get("data", {}).get("value", 0))
                     except ValueError:
                         val = 0
+                    
                     type_id = stat.get("type_id")
-                    stat_code = stat.get("type", {}).get("code", "").lower()
-                    if type_id == 84 or "corner" in stat_code:
+                    if type_id == 84:
                         stats["Corners"] += val
                         match_a_des_stats = True
-                    elif type_id == 86 or "target" in stat_code:
+                    elif type_id == 86:
                         stats["SoT"] += val
                         match_a_des_stats = True
-                    elif type_id == 45 or "possession" in stat_code:
+                    elif type_id == 45:
                         stats["Poss"] += val
                         match_a_des_stats = True
 
-            # Stats xG
+            # Stats xG (Code 5304)
             if "xgfixture" in match and isinstance(match["xgfixture"], list):
                 for xg_stat in match["xgfixture"]:
                     if xg_stat.get("participant_id") != team_id:
                         continue
-                    type_id = xg_stat.get("type_id")
-                    stat_code = xg_stat.get("type", {}).get("code", "").lower()
-                    if type_id == 5304 or "expected-goals" == stat_code:
+                    
+                    if xg_stat.get("type_id") == 5304:
                         try:
                             val = float(xg_stat.get("data", {}).get("value", 0))
                             stats["xG"] += val
@@ -81,15 +80,16 @@ def extraire_donnees_api(team_id, team_name):
              return None
 
         # ==========================================
-        # 2. ANALYSE DE L'INFIRMERIE (Étape 2)
+        # 2. ANALYSE DE L'INFIRMERIE (Prochain Match)
         # ==========================================
         absents_str = "Aucun absent majeur déclaré"
         upcoming_matchs = donnees_team["data"].get("upcoming", [])
 
         if upcoming_matchs:
             prochain_match_id = upcoming_matchs[0]["id"]
-            # Tir de précision ciblé uniquement sur le match à venir
-            url_fixture = f"https://api.sportmonks.com/v3/football/fixtures/{prochain_match_id}?include=sidelined.player,sidelined.type"
+            
+            # CORRECTION : Point-virgule pour l'endpoint Fixture
+            url_fixture = f"https://api.sportmonks.com/v3/football/fixtures/{prochain_match_id}?include=sidelined.player;sidelined.type"
             
             reponse_fixture = requests.get(url_fixture, headers=headers)
             if reponse_fixture.status_code == 200:
@@ -98,9 +98,7 @@ def extraire_donnees_api(team_id, team_name):
                 sidelined_data = donnees_fixture.get("data", {}).get("sidelined", [])
                 
                 for blessure in sidelined_data:
-                    # On filtre pour ne garder que les blessés de notre équipe cible
                     if blessure.get("participant_id") == team_id:
-                        # Gestion de la sous-structure 'sideline' de Sportmonks
                         sideline_detail = blessure.get("sideline", blessure)
                         nom_joueur = sideline_detail.get("player", {}).get("display_name", "Inconnu")
                         type_blessure = sideline_detail.get("type", {}).get("name", "Absence")
@@ -128,7 +126,6 @@ def extraire_donnees_api(team_id, team_name):
         return synthese
 
     except requests.exceptions.HTTPError as err:
-        # En cas d'erreur API, on imprime le message exact du serveur pour comprendre le blocage
         print(f"[!] Erreur API ({err.response.status_code}) pour {team_name} : {err.response.text}")
         return None
     except Exception as e:
