@@ -14,44 +14,23 @@ def extraire_donnees_api(team_id, team_name):
     print(f"[*] INFILTRATION DU SERVEUR POUR : {team_name}")
     print(f"[*] =======================================")
     
-    # On demande la dynamique récente (latest) ET le prochain match (upcoming) avec les blessés (sidelined)
-    url = f"https://api.sportmonks.com/v3/football/teams/{team_id}?include=latest.statistics.type,latest.xgfixture.type,upcoming.sidelined.player,upcoming.sidelined.type"
+    # ÉTAPE 1 : Dynamique récente et ID du prochain combat
+    url_team = f"https://api.sportmonks.com/v3/football/teams/{team_id}?include=latest.statistics.type,latest.xgfixture.type,upcoming"
     headers = {"Authorization": API_TOKEN}
 
     try:
-        reponse = requests.get(url, headers=headers)
-        reponse.raise_for_status()
-        donnees_brutes = reponse.json()
+        reponse_team = requests.get(url_team, headers=headers)
+        reponse_team.raise_for_status()
+        donnees_team = reponse_team.json()
         
-        if "data" not in donnees_brutes:
+        if "data" not in donnees_team:
              print(f"[!] Pas de données trouvées pour {team_name}.")
              return None
 
         # ==========================================
-        # 1. ANALYSE DE L'INFIRMERIE (Prochain Match)
+        # 1. ANALYSE DE LA DYNAMIQUE (5 Derniers)
         # ==========================================
-        absents_liste = []
-        if "upcoming" in donnees_brutes["data"] and len(donnees_brutes["data"]["upcoming"]) > 0:
-            prochain_match = donnees_brutes["data"]["upcoming"][0]
-            if "sidelined" in prochain_match and isinstance(prochain_match["sidelined"], list):
-                for blessure in prochain_match["sidelined"]:
-                    # On s'assure que le blessé appartient bien à l'équipe ciblée
-                    if blessure.get("participant_id") == team_id:
-                        nom_joueur = blessure.get("player", {}).get("display_name", "Inconnu")
-                        type_blessure = blessure.get("type", {}).get("name", "Absence")
-                        absents_liste.append(f"{nom_joueur} ({type_blessure})")
-        
-        # Formatage des absents pour le CSV
-        absents_str = " | ".join(absents_liste) if absents_liste else "Aucun absent majeur déclaré"
-        print(f"[+] Bilan Médical : {absents_str}")
-
-        # ==========================================
-        # 2. ANALYSE DE LA DYNAMIQUE (5 Derniers)
-        # ==========================================
-        if "latest" not in donnees_brutes["data"]:
-             return None
-             
-        derniers_matchs = donnees_brutes["data"]["latest"]
+        derniers_matchs = donnees_team["data"].get("latest", [])
         stats = {"Poss": 0, "xG": 0, "SoT": 0, "Corners": 0}
         matchs_valides = 0
 
@@ -102,6 +81,37 @@ def extraire_donnees_api(team_id, team_name):
              return None
 
         # ==========================================
+        # 2. ANALYSE DE L'INFIRMERIE (Étape 2)
+        # ==========================================
+        absents_str = "Aucun absent majeur déclaré"
+        upcoming_matchs = donnees_team["data"].get("upcoming", [])
+
+        if upcoming_matchs:
+            prochain_match_id = upcoming_matchs[0]["id"]
+            # Tir de précision ciblé uniquement sur le match à venir
+            url_fixture = f"https://api.sportmonks.com/v3/football/fixtures/{prochain_match_id}?include=sidelined.player,sidelined.type"
+            
+            reponse_fixture = requests.get(url_fixture, headers=headers)
+            if reponse_fixture.status_code == 200:
+                donnees_fixture = reponse_fixture.json()
+                absents_liste = []
+                sidelined_data = donnees_fixture.get("data", {}).get("sidelined", [])
+                
+                for blessure in sidelined_data:
+                    # On filtre pour ne garder que les blessés de notre équipe cible
+                    if blessure.get("participant_id") == team_id:
+                        # Gestion de la sous-structure 'sideline' de Sportmonks
+                        sideline_detail = blessure.get("sideline", blessure)
+                        nom_joueur = sideline_detail.get("player", {}).get("display_name", "Inconnu")
+                        type_blessure = sideline_detail.get("type", {}).get("name", "Absence")
+                        absents_liste.append(f"{nom_joueur} ({type_blessure})")
+                
+                if absents_liste:
+                    absents_str = " | ".join(absents_liste)
+        
+        print(f"[+] Bilan Médical : {absents_str}")
+
+        # ==========================================
         # 3. SYNTHÈSE TOTALE POUR LE CSV
         # ==========================================
         synthese = {
@@ -111,12 +121,16 @@ def extraire_donnees_api(team_id, team_name):
             "Moy_xG_5M": round(stats["xG"] / matchs_valides, 2),
             "Moy_SoT_5M": round(stats["SoT"] / matchs_valides, 1),
             "Moy_Corners_5M": round(stats["Corners"] / matchs_valides, 1),
-            "Infirmerie": absents_str # On ajoute la colonne des blessés
+            "Infirmerie": absents_str
         }
         
         print(f"[+] Succès : Dynamique lissée calculée sur {matchs_valides} matchs.")
         return synthese
 
+    except requests.exceptions.HTTPError as err:
+        # En cas d'erreur API, on imprime le message exact du serveur pour comprendre le blocage
+        print(f"[!] Erreur API ({err.response.status_code}) pour {team_name} : {err.response.text}")
+        return None
     except Exception as e:
          print(f"[!] Erreur critique du système pour {team_name} : {e}")
          return None
