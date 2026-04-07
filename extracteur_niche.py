@@ -62,11 +62,10 @@ def extraire_dynamique_fbref(url_equipe, nom_equipe):
 # ZONE DE LANCEMENT DES ASSAUTS
 # ==========================================
 if __name__ == "__main__":
-    # Liste des cibles : Tu mets le nom et l'URL du "Match Log" FBref de l'équipe
-    # Exemple avec des URLs fictives (tu devras aller sur FBref chercher les vraies URLs de l'onglet Match Logs)
+    # Liste des cibles avec les VÉRITABLES URLs FBref (onglet "Scores & Fixtures")
     cibles = [
-        {"nom": "FC_Barcelone", "url": "URL_FBREF_MATCH_LOG_BARCELONA_ICI"},
-        {"nom": "PSG", "url": "URL_FBREF_MATCH_LOG_PSG_ICI"}
+        {"nom": "FC_Barcelone", "url": "https://fbref.com/en/squads/206d90db/matchlogs/all_comps/schedule/Barcelona-Scores-and-Fixtures"},
+        {"nom": "PSG", "url": "https://fbref.com/en/squads/70d6c58e/matchlogs/all_comps/schedule/Paris-Saint-Germain-Scores-and-Fixtures"}
     ]
 
     resultats = []
