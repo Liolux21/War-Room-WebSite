@@ -19,7 +19,7 @@ def scanner_radar_h48():
     print("[*] =======================================")
     
     date_debut = datetime.date.today().strftime("%Y-%m-%d")
-    date_fin = (datetime.date.today() + timedelta(days=2)).strftime("%Y-%m-%d") # Scan sur 48-72h
+    date_fin = (datetime.date.today() + timedelta(days=3)).strftime("%Y-%m-%d") # Scan sur 48-72h
     
     # ⚠️ À REMPLIR : Remplacer par les vrais IDs de tes ligues sur Sportmonks
     # On sait déjà que La Liga = 564. Trouve les autres (Premier League, Ligue 1, etc.)
